@@ -575,6 +575,9 @@ local function addBuildSpeed(parent)
     paint()
 end
 
+local w1Status,w2Status
+
+do
 local a,b,worldOneInfo=columns(p1)
 local cBuild=section(a,'AUTO BUILD')
 toggle(cBuild,'Comprar mejoras cercanas','buy')
@@ -590,8 +593,10 @@ toggle(cCollect,'Recoger fruta cercana','fruit')
 toggle(cCollect,'Recoger dinero cercano','cash')
 statusText(cCollect,'Si no hay objetivos, el interruptor no se activará.',true)
 local cAbout=section(worldOneInfo,'ESTADO MUNDO 1')
-local w1Status=statusText(cAbout,'Buscando objetivos...',false)
+w1Status=statusText(cAbout,'Buscando objetivos...',false)
+end
 
+do
 local la,lb,marsInfo=columns(p2)
 local iceBox=section(la,'AUTO COLLECT')
 toggle(iceBox,'Recoger hielo cercano','ice')
@@ -632,10 +637,10 @@ end
 local artName=textLabel(art,'MARTE  /  ICE WORLD',12,true,COLOR.bright)
 artName.Position=UDim2.new(0,10,1,-28);artName.Size=UDim2.new(1,-20,0,24)
 local iceStats=section(marsInfo,'ESTADO MARTE')
-local w2Status=statusText(iceStats,'Buscando objetivos...',false)
+w2Status=statusText(iceStats,'Buscando objetivos...',false)
 local scopeBox=section(marsInfo,'LÍMITES')
 statusText(scopeBox,'El servidor puede corregir saltos y rechazar compras. NOVA detiene los saltos tras dos correcciones.',true)
-
+end
 
 -- El menú BUILD permite acceder rápidamente a los controles reales del mundo.
 do
