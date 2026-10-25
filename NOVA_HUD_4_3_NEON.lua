@@ -1439,6 +1439,7 @@ local function readInvestorPopup()
                         end
                     end
                     if value then
+                        value.sourceGui=node:FindFirstAncestorOfClass('ScreenGui')
                         if gain then table.insert(earnedCandidates,value) end
                         if current then table.insert(currentCandidates,value) end
                     end
@@ -1459,7 +1460,7 @@ local function readInvestorPopup()
         if #values==0 then return nil end
         local first=values[1]
         for i=2,#values do
-            if first.rank~=values[i].rank or math.abs(first.n-values[i].n)>math.max(1,first.n)*1e-6 then
+            if first.rank~=values[i].rank or first.sourceGui~=values[i].sourceGui or math.abs(first.n-values[i].n)>math.max(1,first.n)*1e-6 then
                 return nil
             end
         end
@@ -1467,6 +1468,19 @@ local function readInvestorPopup()
     end
     local current=single(currentCandidates)
     local gain=single(earnedCandidates)
+    if not current or not gain or not current.sourceGui or
+        current.sourceGui~=gain.sourceGui then
+        current=nil;gain=nil
+    end
+    if current then
+        -- Aceptar sólo botones dentro de la misma interfaz de los inversores.
+        if rebirthButton and rebirthButton:FindFirstAncestorOfClass('ScreenGui')~=current.sourceGui then
+            rebirthButton=nil
+        end
+        if confirmButton and confirmButton:FindFirstAncestorOfClass('ScreenGui')~=current.sourceGui then
+            confirmButton=nil
+        end
+    end
     local multiplier=investorMultiplier(current,gain)
     return {current=current,gain=gain,multiplier=multiplier,
         rebirthButton=rebirthButton,confirmButton=confirmButton,clues=investorClues,labels=labels}
@@ -1498,7 +1512,7 @@ local function updateInvestors(allowAction)
     end
     if not allowAction or not state.autoRebirth or detectedWorld~=1
         or not info.current or not info.gain or not info.multiplier
-        or info.multiplier<INVESTOR_REQUIRED_MULTIPLE then return info end
+        or info.clues<2 or info.multiplier<INVESTOR_REQUIRED_MULTIPLE then return info end
     local now=os.clock()
     if now-rebirthLastAction<1.5 then return info end
     local button=nil
