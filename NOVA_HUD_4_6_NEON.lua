@@ -102,6 +102,7 @@ NOVA_CORE.buyRoute={active=false,target=nil,world=nil}
 NOVA_CORE.buyCooldown={} -- failed physical pads wait before retry
 NOVA_CORE.buyAreaOrigin=nil -- reference near player's tycoon
 NOVA_CORE.buyAreaWorld=nil
+NOVA_CORE.buyWasActive=false
 NOVA_CORE.buyRouteAttempts=0
 NOVA_CORE.buyRouteVerified=0
 NOVA_CORE.buyLastReason='Sin ruta iniciada'
@@ -1365,7 +1366,7 @@ local function nextBuildTarget()
     summary.nextPrice=bestPrice
     buildSummary=summary
     local nextText=bestPrice and bestPrice.label or 'ninguna'
-    budgetMessage=string.format('Saldo: %s | Pagables: %d\nSiguiente: %s',
+    budgetMessage=string.format('Saldo: %s | Precios asequibles: %d\nSiguiente objetivo: %s',
         wallet.label,summary.payable,nextText)
     return best
 end
@@ -2413,6 +2414,31 @@ action(scanBox,'Comprobar precios e inversores',function()
     local investors=investorProbe and investorProbe() or 'Sin datos de inversores'
     inspection.Text=budgetMessage..'\n'..investors
 end)
+action(scanBox,'Resaltar próxima plataforma',function()
+    local hit=nextBuildTarget()
+    if not hit or not hit.part then
+        inspection.Text='No hay una plataforma pagable y elegible en la zona actual.'
+        return
+    end
+    local pad=hit.part
+    local price,reason=upgradeCost(hit)
+    local ownerStatus=plotOwnedByPlayer(pad)
+    local ownerText=ownerStatus==true and 'Mi parcela (confirmado)'
+        or (ownerStatus==false and 'Parcela ajena' or 'Propietario no identificado')
+    local h=Instance.new('Highlight')
+    h.Name='NOVA_NEXT_BUY_DEBUG'
+    h.Adornee=pad
+    h.DepthMode=Enum.HighlightDepthMode.AlwaysOnTop
+    h.FillColor=COLOR.warning
+    h.OutlineColor=COLOR.accent
+    h.FillTransparency=.7
+    h.Parent=pad
+    task.delay(10,function() if h.Parent then h:Destroy() end end)
+    inspection.Text=string.format(
+        'Próximo botón: %s\nTipo: %s\nCosto: %s\nDistancia: %.0f studs\n%s\nRuta: %s',
+        pad.Name,hit.obj.ClassName,price and price.label or tostring(reason),
+        distance(pad),ownerText,NOVA_CORE.buyLastReason)
+end)
 action(scanBox,'Ver tipos de botones de mejora',function()
     local near=candidate(hits.buy,125,false)
     local names={}
@@ -2535,6 +2561,15 @@ task.spawn(function()
         local elapsed=math.floor(os.clock()-startTime)
         timeValue.Text=string.format('%02d:%02d',math.floor(elapsed/60),elapsed%60)
         local buildActive=(NOVA_CORE.detectedWorld==1 and state.buy) or (NOVA_CORE.detectedWorld==2 and state.buyMars)
+        if buildActive and not NOVA_CORE.buyWasActive then
+            local position=rootPart()
+            if position then
+                NOVA_CORE.buyAreaOrigin=position.Position
+                NOVA_CORE.buyAreaWorld=NOVA_CORE.detectedWorld
+            end
+            NOVA_CORE.buyCooldown={} -- nueva sesión de compras
+        end
+        NOVA_CORE.buyWasActive=buildActive
         if os.clock()-lastRefresh>(buildActive and 1.7 or (NOVA_CORE.detectedWorld==2 and state.ice and 2.5 or 9)) then doRefresh() end
         if os.clock()-lastInvestorRefresh>=1.25 then
             lastInvestorRefresh=os.clock()
