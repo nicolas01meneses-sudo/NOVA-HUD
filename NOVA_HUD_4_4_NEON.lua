@@ -631,6 +631,7 @@ end
 local w1Status,w2Status
 local budgetLabels={} -- estado compacto en dos mundos
 local buildActionButtons={} -- botones principales, sincronizados con switches
+local buildBatchStatusLabels={}
 local remoteBuyCaption=nil -- botón oficial visible en el juego, si existe
 local investorLabels={}
 local investorStatus='Inversores: abre el menú de Joe para consultar la oferta.'
@@ -752,6 +753,7 @@ statusText(buildFastPanel,'Sin Remote Buy, las plataformas lejanas se recorren u
 local buildTips=section(buildR,'ESTADO DE COMPRAS')
 local buildGuide=statusText(buildTips,'Abre un mundo para activar Auto Mejoras. Los intentos no son compras confirmadas.',true)
 local batchStatusView=statusText(buildTips,'Lotes: sin intentos todavía',true)
+table.insert(buildBatchStatusLabels,batchStatusView)
 remoteBuyCaption=statusText(buildTips,'Remote Buy: no comprobado',true)
 table.insert(budgetLabels,statusText(buildTips,'Saldo: esperando lectura',true))
 
@@ -1470,6 +1472,162 @@ local function attemptInteraction(hit,perTargetDelay)
     return ok,ok and 'Intento enviado (sin confirmación)' or tostring(err)
 end
 
+-- Comparación aproximada de presupuestos con notación de millares.
+-- Nunca se supone que el saldo haya cambiado de verdad: se reserva en el lote
+-- y se vuelve a consultar la pantalla en el siguiente ciclo.
+local function subtractBudget(wallet,price)
+    if not wallet or not price or cheaper(wallet,price) then return nil end
+    local rank=math.max(wallet.rank,price.rank)
+    local amount=(wallet.n*1000^(wallet.rank-rank))-
+        (price.n*1000^(price.rank-rank))
+    if amount< -1e-9 then return nil end
+    amount=math.max(0,amount)
+    while amount>0 and amount<1 and rank>0 do
+        amount=amount*1000
+        rank=rank-1
+    end
+    while amount>=1000 do
+        amount=amount/1000
+        rank=rank+1
+    end
+    return {rank=rank,n=amount,label='saldo reservado en lote'}
+end
+
+local function pricedBuildQueue()
+    local wallet=walletMoney()
+    if not wallet then return nil,{} end
+    local now=os.clock()
+    local result,seen={},{}
+    local function add(hit)
+        local obj=hit.obj
+        if not obj or not obj.Parent or seen[obj] then return end
+        local part=hit.part
+        local guiButton=obj:IsA('GuiButton')
+        if guiButton then
+            if not isVisibleGui(obj) then return end
+        elseif not part or not part:IsDescendantOf(Workspace)
+            or distance(part)>BUY_SEARCH_STUDS
+            or (state.needed and part.Transparency>.85) then return end
+        if not hit.priceReadAt or now-hit.priceReadAt>1 then
+            hit.price,hit.priceReason=upgradeCost(hit)
+            hit.priceReadAt=now
+        end
+        local price=hit.price
+        if not price or cheaper(wallet,price) then return end
+        local d=part and distance(part) or 0
+        if not guiButton and d>allowedActivationDistance(obj) and not state.buyTeleport then return end
+        if not guiButton and now-(teleportLog[obj] or -1e9)<BUILD_RETRY_COOLDOWN then return end
+        if guiButton and now-(lastAttempt[obj] or -1e9)<BATCH_INTERACTION_DELAY then return end
+        seen[obj]=true
+        table.insert(result,{hit=hit,price=price,d=d})
+    end
+    for _,hit in ipairs(hits.buy) do add(hit) end
+    for _,hit in ipairs(guiUpgrades) do add(hit) end
+    table.sort(result,function(a,b)
+        if state.cheapFirst then
+            if cheaper(a.price,b.price) then return true end
+            if cheaper(b.price,a.price) then return false end
+        end
+        return a.d<b.d
+    end)
+    return wallet,result
+end
+
+local function showBatchStatus(message)
+    latestBatchStatus=message
+    for _,label in ipairs(buildBatchStatusLabels) do
+        if label and label.Parent then label.Text=message end
+    end
+end
+local lastRemoteLabelUpdate=-1e9
+local function runAutoUpgrades()
+    local now=os.clock()
+    if now-lastBatchRun<.30 then return end
+    lastBatchRun=now
+    local maxToAttempt=state.bulkBuy and batchSize or 1
+    if state.remoteBuy then
+        local remote=refreshOfficialRemoteBuy()
+        if remote then
+            if remoteBuyCaption and now-lastRemoteLabelUpdate>.9 then
+                lastRemoteLabelUpdate=now
+                remoteBuyCaption.Text='Remote Buy: botón oficial disponible'
+            end
+            -- El juego decide qué comprar con su poder desbloqueado.
+            local sent=0
+            for i=1,maxToAttempt do
+                if not running or not (state.buy or state.buyMars) then break end
+                local ok,msg=attemptInteraction(remote,BATCH_INTERACTION_DELAY)
+                if not ok then
+                    if msg~='En espera' then
+                        showBatchStatus('Remote Buy no disponible: '..msg)
+                    end
+                    break
+                end
+                sent=sent+1
+                remoteBuyAttempts=remoteBuyAttempts+1
+                -- Se evita enviar múltiples pulsaciones en el mismo fotograma.
+                task.wait(.23)
+                if not remote.obj or not remote.obj.Parent or not isVisibleGui(remote.obj) then break end
+            end
+            if sent>0 then
+                batchAttempts=batchAttempts+sent
+                showBatchStatus('Remote Buy: '..sent..' intentos enviados (no confirmados)')
+                return
+            end
+        elseif remoteBuyCaption and now-lastRemoteLabelUpdate>1 then
+            lastRemoteLabelUpdate=now
+            remoteBuyCaption.Text='Remote Buy: no está visible/desbloqueado'
+        end
+    end
+
+    -- Si el jugador no tiene Remote Buy, se intentan varios controles
+    -- distintos y alcanzables; las plataformas lejanas exigen desplazamiento.
+    local available,ordered=pricedBuildQueue()
+    if not available then
+        showBatchStatus('Compras pausadas: el saldo no se pudo leer')
+        return
+    end
+    local remaining=available
+    local sent,moved,unsupported=0,false,0
+    for _,entry in ipairs(ordered) do
+        if sent>=maxToAttempt or not running then break end
+        local cost=entry.price
+        if not cheaper(remaining,cost) then
+            local hit=entry.hit
+            local obj=hit.obj
+            local part=hit.part
+            local near=part and distance(part)<=allowedActivationDistance(obj)
+            if obj:IsA('GuiButton') or
+                ((obj:IsA('ClickDetector') or obj:IsA('ProximityPrompt')) and near) then
+                local ok,msg=attemptInteraction(hit,BATCH_INTERACTION_DELAY)
+                if ok then
+                    sent=sent+1
+                    local newBalance=subtractBudget(remaining,cost)
+                    if newBalance then remaining=newBalance end
+                    task.wait(.11)
+                elseif msg~='En espera' then
+                    unsupported=unsupported+1
+                end
+            elseif part and state.buyTeleport then
+                if repositionNear(hit,'Plataforma pagable',true) then
+                    moved=true
+                    break -- un desplazamiento por ciclo; no teletransportes simultáneos
+                end
+            else
+                unsupported=unsupported+1
+            end
+        end
+    end
+    if sent>0 then batchAttempts=batchAttempts+sent end
+    if sent>0 or moved then
+        showBatchStatus('Lote: '..sent..' intentos | cambio de plataforma: '..(moved and 'sí' or 'no'))
+    elseif unsupported>0 then
+        showBatchStatus('Mejoras visibles, pero sin interacción alcanzable ('..unsupported..')')
+    else
+        showBatchStatus('Sin mejoras pagables al alcance; revisa el escáner')
+    end
+end
+
 -- Evaluación prudente del menú de inversores. No obtiene datos privados
 -- ni invoca remotes desconocidos: sólo lee texto visible y botones de la UI.
 local function investorValue(t)
@@ -2133,26 +2291,10 @@ task.spawn(function()
                 local iceRadius=iceSearchMeters*STUDS_PER_METER
                 local h=nearby(hits[rule.bucket],isIce and iceRadius or MAX_RANGE)
                 if isBuy then
-                    local offer=nextBuildTarget()
-                    if offer then
-                        local obj=offer.obj
-                        if obj:IsA('GuiButton') then
-                            local _,msg=attemptInteraction(offer)
-                            if statusNotice and msg~='En espera' then statusNotice('Compra pagable: '..msg) end
-                        elseif obj:IsA('ClickDetector') or obj:IsA('ProximityPrompt') then
-                            if distance(offer.part)<=allowedActivationDistance(obj) then
-                                local _,msg=attemptInteraction(offer)
-                                if statusNotice and msg~='En espera' then statusNotice('Compra pagable: '..msg) end
-                            elseif state.buyTeleport then
-                                repositionNear(offer,'Botón pagable',true)
-                            end
-                        elseif state.buyTeleport then
-                            repositionNear(offer,'Plataforma pagable',true)
-                        end
-                    elseif statusNotice and os.clock()-lastBudgetMessage>3 then
-                        lastBudgetMessage=os.clock()
-                        statusNotice(budgetMessage)
-                    end
+                    -- El botón AUTO MEJORAS ejecuta lotes reales de intentos
+                    -- y prioriza el poder Remote Buy cuando el jugador lo posee.
+                    nextBuildTarget() -- mantiene saldo/diagnóstico actualizados
+                    runAutoUpgrades()
                 elseif isIce then
                     local sent=collectIceBatch()
                     local elapsed=os.clock()-lastIceMoveAt
@@ -2183,6 +2325,6 @@ task.spawn(function()
             vals[3].Text=tostring(teleportCount)
             vals[4].Text=tostring(stats.attempts)
         end
-        task.wait(buildActive and .25 or (detectedWorld==2 and state.ice and .18 or .7))
+        task.wait(buildActive and .30 or (detectedWorld==2 and state.ice and .18 or .7))
     end
 end)
