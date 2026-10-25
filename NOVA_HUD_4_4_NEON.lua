@@ -749,7 +749,7 @@ end
 batchSizeView.MouseButton1Click:Connect(changeBatchSize)
 toggle(buildFastPanel,'Compra rápida por lotes','bulkBuy')
 toggle(buildFastPanel,'Remote Buy si está desbloqueado','remoteBuy')
-statusText(buildFastPanel,'Sin Remote Buy, las plataformas lejanas se recorren una tras otra.',true)
+statusText(buildFastPanel,'Con Remote Buy desbloqueado, minimiza NOVA para dejar accesible el botón del juego.',true)
 local buildTips=section(buildR,'ESTADO DE COMPRAS')
 local buildGuide=statusText(buildTips,'Abre un mundo para activar Auto Mejoras. Los intentos no son compras confirmadas.',true)
 local batchStatusView=statusText(buildTips,'Lotes: sin intentos todavía',true)
@@ -2013,10 +2013,8 @@ local function refresh()
     local iceRadius=iceSearchMeters*STUDS_PER_METER
     local iceInSearch=candidate(hits.ice,iceRadius,false)
     local iceInReach=nearby(hits.ice,iceRadius)
-    w2Status.Text=string.format('Hielo: %d compatible | %d cristales visuales\nRadio de búsqueda: %d m (≈ %d studs)\n%s\nMejoras: %d físicas + %d UI',
-        i,countBlueParts(),iceSearchMeters,math.floor(iceRadius+.5),
-        iceInReach and 'Hielo al alcance de interacción' or (iceInSearch and 'Hielo localizado, demasiado lejos para interactuar' or 'No hay hielo en el radio'),
-        u,#guiUpgrades)
+    w2Status.Text=string.format('Hielo: %d  |  Radio: %d m\nMejoras visibles: %d',
+        i,iceSearchMeters,u+#guiUpgrades)
     for page,vals in pairs(dashboardStatLabels) do
         vals[1].Text=tostring(i)
         vals[2].Text=tostring(u+#guiUpgrades)
@@ -2312,6 +2310,11 @@ task.spawn(function()
         end
         footer.Text=string.format('Hielo: %d  |  Mejoras: %d',
             #hits.ice,#hits.buy+#guiUpgrades)
+        if remoteBuyCaption and os.clock()-lastOfficialScan>2.8 then
+            local official=refreshOfficialRemoteBuy()
+            remoteBuyCaption.Text=official and 'Remote Buy: detectado'
+                or 'Remote Buy: no visible (requiere desbloquearlo)'
+        end
         if os.clock()-lastBudgetRefresh>1.25 then
             lastBudgetRefresh=os.clock()
             if not buildActive then nextBuildTarget() end
