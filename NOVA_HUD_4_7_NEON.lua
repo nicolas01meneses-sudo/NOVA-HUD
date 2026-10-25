@@ -751,7 +751,7 @@ statusText(buildFastPanel,'Una plataforma por vez: primero la más barata que pu
 statusText(buildFastPanel,'Movimiento: TP. Cada intento se comprueba antes de continuar.',true)
 local buildTips=section(buildR,'ESTADO DE COMPRAS')
 local buildGuide=statusText(buildTips,'Abre un mundo para activar Auto Mejoras. Los intentos no son compras confirmadas.',true)
-local batchStatusView=statusText(buildTips,'Lotes: sin intentos todavía',true)
+local batchStatusView=statusText(buildTips,'Compras: sin intentos todavía',true)
 table.insert(buildBatchStatusLabels,batchStatusView)
 remoteBuyCaption=statusText(buildTips,'Compra secuencial por TP (sin Remote Buy).',true)
 table.insert(budgetLabels,statusText(buildTips,'Saldo: esperando lectura',true))
@@ -2230,6 +2230,24 @@ action(scanBox,'Comprobar precios e inversores',function()
     local investors=investorProbe and investorProbe() or 'Sin datos de inversores'
     inspection.Text=budgetMessage..'\n'..investors
 end)
+action(scanBox,'Ver 5 precios más baratos',function()
+    local money,ordered=pricedBuildQueue()
+    if not money then
+        inspection.Text='Saldo no reconocido. Abre tu tycoon y vuelve a escanear.'
+        return
+    end
+    if #ordered==0 then
+        inspection.Text='Sin plataformas pagables con precio reconocido.'
+        return
+    end
+    local rows={'Saldo: '..tostring(money.label),'Orden: menor precio -> mayor precio'}
+    for i=1,math.min(5,#ordered) do
+        local item=ordered[i]
+        table.insert(rows,string.format('%d. %s | %s | %.0f studs',
+            i,tostring(item.price.label),item.hit.part and item.hit.part.Name or '?',item.d))
+    end
+    inspection.Text=table.concat(rows,'\n')
+end)
 action(scanBox,'Resaltar próxima plataforma',function()
     local hit=nextBuildTarget()
     if not hit or not hit.part then
@@ -2410,8 +2428,8 @@ task.spawn(function()
                 local iceRadius=NOVA_CORE.iceSearchMeters*NOVA_CORE.STUDS_PER_METER
                 local h=nearby(hits[rule.bucket],isIce and iceRadius or NOVA_CORE.MAX_RANGE)
                 if isBuy then
-                    -- El botón AUTO MEJORAS ejecuta lotes reales de intentos
-                    -- y prioriza el poder Remote Buy cuando el jugador lo posee.
+                    -- Una sola plataforma, ordenada por costo y luego por distancia.
+                    -- Cada intento se verifica antes de tomar el siguiente objetivo.
                     nextBuildTarget() -- mantiene saldo/diagnóstico actualizados
                     runAutoUpgrades()
                 elseif isIce then
