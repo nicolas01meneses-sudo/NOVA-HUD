@@ -733,7 +733,7 @@ scaleRail.InputBegan:Connect(function(input)
         setScaleFromX(input.Position.X)
     end
 end)
-local preview=section(visualR,'NOVA NEON v4.0')
+local preview=section(visualR,'NOVA NEON v4.1')
 statusText(preview,'Carbono oscuro • contornos cian • acentos azules y violetas • controles suaves.',true)
 local configL,configR=columns(pConfig)
 local configCard=section(configL,'CONFIGURACIÓN')
