@@ -1330,8 +1330,18 @@ local function findOfficialRemoteBuy()
                 end
             end
             local combined=path..' '..words
-            if not hasAny(combined,BAD_PURCHASE) and
-                (hasAny(path,{'remotebuy','remote_buy','remote buy'})
+            -- No tocar la opción de compra del poder en Powers/Shop.
+            -- Solo es válido el botón de Remote Buy presente en el HUD de juego.
+            local storeContext=hasAny(path,{
+                'power','shop','store','tienda','gamepass','catalog',
+                'purchaseoffer','marketplace','inventory','robux'})
+            local inScroll=button:FindFirstAncestorOfClass('ScrollingFrame')~=nil
+            local view=Workspace.CurrentCamera and Workspace.CurrentCamera.ViewportSize
+            local hudPosition=(view and view.Y>0)
+                and button.AbsolutePosition.Y>view.Y*.34
+            if not storeContext and not inScroll and hudPosition
+                and not hasAny(combined,BAD_PURCHASE)
+                and (hasAny(path,{'remotebuy','remote_buy','remote buy'})
                 or hasAny(words,{'remote buy','compra remota'})) then
                 return {obj=button,part=nil}
             end
@@ -1600,7 +1610,7 @@ local function runAutoUpgrades()
         if initiallyOpen and gui.Parent then window.Visible=true end
         if sent>0 then
             batchAttempts=batchAttempts+sent
-            task.wait(.3)
+            task.wait(.65)
             local after=observedBoughtCount()
             if before and after and after>before then
                 showBatchStatus('Compras registradas: +'..(after-before)..' de '..sent..' clics')
@@ -1609,12 +1619,12 @@ local function runAutoUpgrades()
             elseif before and after and after==before then
                 remoteAttemptsWithoutConfirmation=remoteAttemptsWithoutConfirmation+sent
                 showBatchStatus('Clics: '..sent..' | nuevas compras: 0')
-                if remoteAttemptsWithoutConfirmation>=12 then
+                if remoteAttemptsWithoutConfirmation>=18 then
                     state.buy=false;state.buyMars=false
                     for _,key in ipairs({'buy','buyMars'}) do
                         for _,draw in ipairs(switches[key] or {}) do draw() end
                     end
-                    purchasePath('PAUSADO: 12 clics sin aumento de compras.')
+                    purchasePath('PAUSADO: 18 clics sin aumento de compras.')
                 else
                     purchasePath('Remote Buy: sin cambio confirmado.')
                 end
