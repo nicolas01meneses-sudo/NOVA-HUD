@@ -73,7 +73,7 @@ local function roundedButton(parent,title,background,size)
     corner(b,7);return b
 end
 
-local state={fruit=false,ice=false,cash=false,buy=false,buyMars=false,needed=true,radar=false,iceTeleport=false,buyTeleport=false,cheapFirst=true,iceBatch=true}
+local state={fruit=false,ice=false,cash=false,buy=false,buyMars=false,needed=true,radar=false,iceTeleport=false,buyTeleport=false,cheapFirst=true,iceBatch=true,autoRebirth=false}
 local running=true
 local MAX_RANGE=14 -- fallback interaction distance, measured in studs
 local STUDS_PER_METER=1/0.28 -- approximate Roblox unit conversion
@@ -624,6 +624,15 @@ end
 
 local w1Status,w2Status
 local budgetLabels={} -- dos páginas comparten el diagnóstico de precios
+local investorLabels={}
+local investorStatus='Inversores: abre el menú de Joe para consultar la oferta.'
+local investorProbe=nil
+local INVESTOR_REQUIRED_MULTIPLE=10 -- regla solicitada por el jugador
+local rebirthLastAction=-1e9
+local rebirthStage=0
+local rebirthStageDeadline=0
+local lastInvestorRefresh=-1e9
+local investorSnapshot=nil
 
 do
 local a,b,worldOneInfo=columns(p1)
@@ -635,8 +644,12 @@ toggle(cBuild,'Más baratas primero','cheapFirst')
 addBuildSpeed(cBuild)
 statusText(cBuild,'Selecciona las mejoras que puedas pagar, priorizando su precio.',true)
 table.insert(budgetLabels,statusText(cBuild,'Saldo: esperando escaneo de precios...',true))
-local cProgress=section(a,'PROGRESSION')
-statusText(cProgress,'Ascend y Powers: pendientes de verificar en el juego.',true)
+local cProgress=section(a,'INVERSORES / RENACIMIENTO')
+toggle(cProgress,'Auto renacimiento x10','autoRebirth')
+table.insert(investorLabels,statusText(cProgress,
+    'Abre el menú de inversores (Joe) para comprobar los valores.',true))
+statusText(cProgress,
+    'Desactivado inicialmente. Requiere inversores actuales y ganancia legibles. Puede reiniciar tu dinero y tus mejoras.',true)
 local cCollect=section(b,'AUTO COLLECT')
 toggle(cCollect,'Recoger fruta cercana','fruit')
 toggle(cCollect,'Recoger dinero cercano','cash')
@@ -1356,6 +1369,172 @@ local function attemptInteraction(hit,perTargetDelay)
     return ok,ok and 'Intento enviado (sin confirmación)' or tostring(err)
 end
 
+-- Evaluación prudente del menú de inversores. No obtiene datos privados
+-- ni invoca remotes desconocidos: sólo lee texto visible y botones de la UI.
+local function investorValue(t)
+    if type(t)~='string' then return nil end
+    local number,unit=t:match('([%d][%d%.,]*)%s*([^%s]*)')
+    if not number then return nil end
+    unit=(unit or ''):lower():gsub('^[%p]+',''):gsub('[%p]+$','')
+    if hasAny(unit,{'investor','inversor'}) then unit='' end
+    if moneyUnits[unit]==nil then return nil end
+    return amountFromText((detectedWorld==2 and 'Φ' or '$')..number..' '..unit)
+end
+local function investorMultiplier(current,earned)
+    if not current or not earned then return nil end
+    if current.n<=0 or earned.n<0 then return nil end
+    local log10=math.log(earned.n)/math.log(10)
+        -math.log(current.n)/math.log(10)
+        +(earned.rank-current.rank)*3
+    if log10>9 then return math.huge end
+    if log10< -6 then return 0 end
+    return 10^log10
+end
+local function readInvestorPopup()
+    local currentCandidates,earnedCandidates={},{}
+    local rebirthButton,confirmButton=nil,nil
+    local investorClues=0
+    local labels=0
+    for _,node in ipairs(playerGui:GetDescendants()) do
+        if node:IsA('GuiObject') and not node:IsDescendantOf(gui) and isVisibleGui(node) then
+            if node:IsA('TextLabel') or node:IsA('TextButton') then
+                labels=labels+1
+                local raw=node.Text or ''
+                if #raw<190 then
+                    local low=raw:lower()
+                    if hasAny(low,{'rebirth','investor','inversor','renacimiento','renacer'}) then
+                        investorClues=investorClues+1
+                    end
+                    local gain=hasAny(low,{'rebirth to get','rebirth for','you will get',
+                        'investors to get','investors gained','gain investors',
+                        'renacer para obtener','obtendrás','ganarás inversores',
+                        'inversores a ganar','inversores al renacer'})
+                    local current=hasAny(low,{'you have','currently have','current investors',
+                        'your investors','already have','inversores actuales',
+                        'inversores que tienes','inversores disponibles'})
+                        or low:match('^%s*investors%s*:')
+                        or low:match('^%s*inversores%s*:')
+                    local value=nil
+                    if current or gain then
+                        -- Extraer solo la cifra posterior al título, nunca el "x10" de una ayuda.
+                        local after=raw:match(':%s*(.+)')
+                        if not after then
+                            after=raw:gsub('^[^%d]+','')
+                        end
+                        value=investorValue(after)
+                        if not value and node.Parent then
+                            -- Un rótulo y su importe pueden estar en TextLabels hermanos.
+                            local possibilities={}
+                            for _,sibling in ipairs(node.Parent:GetChildren()) do
+                                if sibling~=node and (sibling:IsA('TextLabel') or sibling:IsA('TextButton'))
+                                    and isVisibleGui(sibling) then
+                                    local other=sibling.Text or ''
+                                    if #other<100 and other:match('^%s*[%d]') then
+                                        local item=investorValue(other)
+                                        if item then table.insert(possibilities,item) end
+                                    end
+                                end
+                            end
+                            if #possibilities==1 then value=possibilities[1] end
+                        end
+                    end
+                    if value then
+                        if gain then table.insert(earnedCandidates,value) end
+                        if current then table.insert(currentCandidates,value) end
+                    end
+                    if node:IsA('TextButton') and not hasAny(low,{'robux','purchase','gamepass','shop'}) then
+                        if low:match('^%s*rebirth%s*!?%s*$') or
+                            low:match('^%s*renacer%s*!?%s*$') then
+                            rebirthButton=node
+                        elseif hasAny(low,{'confirm rebirth','yes, rebirth','rebirth now',
+                            'confirmar renacimiento','confirmar renacer','sí, renacer'}) then
+                            confirmButton=node
+                        end
+                    end
+                end
+            end
+        end
+    end
+    local function single(values)
+        if #values==0 then return nil end
+        local first=values[1]
+        for i=2,#values do
+            if first.rank~=values[i].rank or math.abs(first.n-values[i].n)>math.max(1,first.n)*1e-6 then
+                return nil
+            end
+        end
+        return first
+    end
+    local current=single(currentCandidates)
+    local gain=single(earnedCandidates)
+    local multiplier=investorMultiplier(current,gain)
+    return {current=current,gain=gain,multiplier=multiplier,
+        rebirthButton=rebirthButton,confirmButton=confirmButton,clues=investorClues,labels=labels}
+end
+local function updateInvestors(allowAction)
+    local info=readInvestorPopup()
+    investorSnapshot=info
+    if detectedWorld~=1 then
+        investorStatus='Inversores: cambia al Mundo 1 y abre la ventana de Joe.'
+    elseif not info.current or not info.gain or info.clues<2 then
+        investorStatus='Inversores: faltan cantidades verificables. Abre el menú de Joe.'
+    elseif not info.multiplier then
+        investorStatus='Inversores: cantidad actual cero. Primer renacimiento: hazlo manualmente.'
+    else
+        local factor=info.multiplier==math.huge and '>1.000.000' or string.format('%.2f',info.multiplier)
+        investorStatus='Actual: '..info.current.label..
+            '\nRecibirías: '..info.gain.label..
+            '\nFactor: x'..factor..' (objetivo x'..INVESTOR_REQUIRED_MULTIPLE..')'
+        if info.multiplier<INVESTOR_REQUIRED_MULTIPLE then
+            investorStatus=investorStatus..'\nAún no cumple la regla x10.'
+        elseif not state.autoRebirth then
+            investorStatus=investorStatus..'\nObjetivo alcanzado; Auto Rebirth apagado.'
+        elseif not info.rebirthButton and not info.confirmButton then
+            investorStatus=investorStatus..'\nFalta botón de renacimiento verificado.'
+        end
+    end
+    for _,label in ipairs(investorLabels) do
+        if label and label.Parent then label.Text=investorStatus end
+    end
+    if not allowAction or not state.autoRebirth or detectedWorld~=1
+        or not info.current or not info.gain or not info.multiplier
+        or info.multiplier<INVESTOR_REQUIRED_MULTIPLE then return info end
+    local now=os.clock()
+    if now-rebirthLastAction<1.5 then return info end
+    local button=nil
+    if rebirthStage==0 and info.rebirthButton and now-rebirthLastAction>20 then
+        button=info.rebirthButton
+    elseif rebirthStage==1 and now<rebirthStageDeadline and info.confirmButton then
+        button=info.confirmButton
+    end
+    if button then
+        local success,msg=attemptInteraction({obj=button})
+        if success then
+            rebirthLastAction=now
+            if rebirthStage==0 then
+                rebirthStage=1;rebirthStageDeadline=now+12
+            else
+                rebirthStage=0;rebirthStageDeadline=0
+            end
+            investorStatus=investorStatus..'\nIntento enviado: '..button.Text
+        else
+            investorStatus=investorStatus..'\nNo se pudo interactuar: '..msg
+        end
+        for _,label in ipairs(investorLabels) do
+            if label and label.Parent then label.Text=investorStatus end
+        end
+    end
+    if rebirthStage==1 and now>=rebirthStageDeadline then
+        rebirthStage=0
+        investorStatus=investorStatus..'\nConfirmación pendiente: revisa el menú.'
+    end
+    return info
+end
+investorProbe=function()
+    updateInvestors(false)
+    return investorStatus
+end
+
 -- La agrupación es solo espacial: no presupone nombres ni eventos privados.
 local function recordIceRock(pos,now)
     for i=#iceRockVisits,1,-1 do
@@ -1688,6 +1867,11 @@ action(scanBox,'TOCAR OBJETO EN EL MAPA',function()
         end
     end)
 end)
+action(scanBox,'Comprobar precios e inversores',function()
+    nextBuildTarget()
+    local investors=investorProbe and investorProbe() or 'Sin datos de inversores'
+    inspection.Text=budgetMessage..'\n'..investors
+end)
 action(scanBox,'Ver tipos de botones de mejora',function()
     local near=candidate(hits.buy,125,false)
     local names={}
@@ -1811,6 +1995,10 @@ task.spawn(function()
         timeValue.Text=string.format('%02d:%02d',math.floor(elapsed/60),elapsed%60)
         local buildActive=(detectedWorld==1 and state.buy) or (detectedWorld==2 and state.buyMars)
         if os.clock()-lastRefresh>(buildActive and 1.7 or (detectedWorld==2 and state.ice and 2.5 or 9)) then doRefresh() end
+        if os.clock()-lastInvestorRefresh>=1.25 then
+            lastInvestorRefresh=os.clock()
+            if detectedWorld==1 or state.autoRebirth then updateInvestors(true) end
+        end
         if os.clock()-(lastDetection or -1e9)>2.5 then
             lastDetection=os.clock()
             detectWorld()
