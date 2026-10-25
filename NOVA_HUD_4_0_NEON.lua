@@ -30,9 +30,6 @@ local COLOR = {
 local neonBorders={}
 local neonGlow=true
 local scaleMultiplier=1
-local function gradient(parent,a,b,rotation)
-    return Instance.new('UIGradient',parent)
-end
 
 local function make(class,props,parent)
     local obj=Instance.new(class)
@@ -147,6 +144,7 @@ make('UIGradient',{Rotation=0,Color=ColorSequence.new({
 })},top)
 make('Frame',{Position=UDim2.new(0,0,1,-2),Size=UDim2.new(1,0,0,2),
     BackgroundColor3=COLOR.accent,BackgroundTransparency=.42,BorderSizePixel=0},top)
+do
 local logo=make('Frame',{Size=UDim2.fromOffset(52,52),
     Position=UDim2.fromOffset(13,10),BackgroundColor3=Color3.fromRGB(6,38,79),
     BorderSizePixel=0},top)
@@ -161,6 +159,7 @@ title.Position=UDim2.fromOffset(78,3);title.Size=UDim2.fromOffset(188,43)
 title.TextStrokeColor3=COLOR.blue;title.TextStrokeTransparency=.59
 local version=textLabel(top,'v4.0 • SELL LEMONS',12,true,COLOR.muted)
 version.Position=UDim2.fromOffset(80,40);version.Size=UDim2.fromOffset(208,23)
+end
 
 local badgeBackground=make('Frame',{Position=UDim2.fromOffset(301,15),
     Size=UDim2.fromOffset(156,42),BackgroundColor3=COLOR.nav,
@@ -174,6 +173,7 @@ local autoButton=roundedButton(top,'VISTA AUTO',COLOR.nav,UDim2.fromOffset(110,3
 autoButton.Position=UDim2.fromOffset(470,19)
 autoButton.TextColor3=COLOR.success;autoButton.TextSize=11;outline(autoButton)
 
+do
 local userPanel=make('Frame',{Position=UDim2.new(1,-380,0,12),
     Size=UDim2.fromOffset(161,47),BackgroundColor3=COLOR.nav,BorderSizePixel=0},top)
 corner(userPanel,9);outline(userPanel)
@@ -183,6 +183,7 @@ local userCaption=textLabel(userPanel,'USUARIO',10,false,COLOR.muted)
 userCaption.Position=UDim2.fromOffset(48,4);userCaption.Size=UDim2.new(1,-54,0,18)
 local userName=textLabel(userPanel,player.DisplayName or player.Name,13,true,COLOR.bright)
 userName.Position=UDim2.fromOffset(48,21);userName.Size=UDim2.new(1,-54,0,21)
+end
 
 local timePanel=make('Frame',{Position=UDim2.new(1,-211,0,12),
     Size=UDim2.fromOffset(113,47),BackgroundColor3=COLOR.nav,BorderSizePixel=0},top)
@@ -210,6 +211,7 @@ local sideMenu=make('Frame',{Position=UDim2.fromOffset(0,7),
 make('UIListLayout',{Padding=UDim.new(0,7),SortOrder=Enum.SortOrder.LayoutOrder},sideMenu)
 make('UIPadding',{PaddingTop=UDim.new(0,7),PaddingLeft=UDim.new(0,10),
     PaddingRight=UDim.new(0,10)},sideMenu)
+do
 local sideBrand=make('Frame',{Position=UDim2.new(0,10,1,-70),
     Size=UDim2.new(1,-20,0,65),BackgroundColor3=COLOR.nav,BorderSizePixel=0},sidebar)
 corner(sideBrand,10);outline(sideBrand)
@@ -219,6 +221,7 @@ local brandTitle=textLabel(sideBrand,'NOVA HUD',12,true,COLOR.accent)
 brandTitle.Position=UDim2.fromOffset(48,9);brandTitle.Size=UDim2.new(1,-51,0,22)
 local brandSub=textLabel(sideBrand,'Neon Interface',10,false,COLOR.muted)
 brandSub.Position=UDim2.fromOffset(48,29);brandSub.Size=UDim2.new(1,-50,0,20)
+end
 
 local content=make('Frame',{Position=UDim2.fromOffset(184,87),
     Size=UDim2.new(1,-195,1,-125),BackgroundTransparency=1},window)
@@ -227,6 +230,7 @@ local bottom=make('Frame',{Position=UDim2.new(0,0,1,-33),
     Size=UDim2.new(1,0,0,33),BackgroundColor3=COLOR.panel,BorderSizePixel=0},window)
 make('Frame',{Position=UDim2.fromOffset(0,0),Size=UDim2.new(1,0,0,1),
     BackgroundColor3=COLOR.border,BackgroundTransparency=.36,BorderSizePixel=0},bottom)
+do
 local onlineDot=make('Frame',{Position=UDim2.fromOffset(23,13),Size=UDim2.fromOffset(9,9),
     BackgroundColor3=COLOR.success,BorderSizePixel=0},bottom)
 corner(onlineDot,9)
@@ -235,6 +239,7 @@ online.Position=UDim2.fromOffset(39,6);online.Size=UDim2.fromOffset(154,21)
 local bottomBrand=textLabel(bottom,'NOVA v4.0 NEON • SELL LEMONS',11,true,COLOR.accent)
 bottomBrand.TextXAlignment=Enum.TextXAlignment.Center
 bottomBrand.Position=UDim2.new(.31,0,0,6);bottomBrand.Size=UDim2.new(.40,0,0,21)
+end
 local footer=textLabel(bottom,'Iniciando...',10,false,COLOR.muted)
 footer.TextXAlignment=Enum.TextXAlignment.Right
 footer.Position=UDim2.new(.72,0,0,6)
@@ -633,6 +638,7 @@ statusText(scopeBox,'El servidor puede corregir saltos y rechazar compras. NOVA 
 
 
 -- El menú BUILD permite acceder rápidamente a los controles reales del mundo.
+do
 local buildL,buildR=columns(pBuild)
 local buildIntro=section(buildL,'BUILD MANAGER')
 statusText(buildIntro,'Gestiona las mejoras desde la pestaña del mundo que corresponda. Priorizar precios no garantiza compras aceptadas.',true)
@@ -691,6 +697,7 @@ resetView.MouseButton1Click:Connect(function()
 end)
 local configInfo=section(configR,'INFORMACIÓN')
 statusText(configInfo,'NOVA v4.0 NEON\nVersión gráfica basada en NOVA 3.9.\nEstadísticas: intentos enviados, no recompensas confirmadas.',true)
+end
 
 local da,db=columns(pd)
 local scanBox=section(da,'ESCÁNER DE OBJETOS')
