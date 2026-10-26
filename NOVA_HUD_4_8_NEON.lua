@@ -758,7 +758,7 @@ buildWorld2.TextColor3=COLOR.accent;outline(buildWorld2)
 buildWorld2.MouseButton1Click:Connect(function() showPage('World2') end)
 local buildFastPanel=section(buildL,'COMPRA POR PRECIO')
 statusText(buildFastPanel,'Botones iniciales primero; dentro de esa zona, menor precio.',true)
-statusText(buildFastPanel,'Auto mejorar puestos prioriza ingresos, velocidad y managers.',true)
+statusText(buildFastPanel,'Puestos: prioriza mejoras de ganancias, velocidad y administradores.',true)
 local startPanel=section(buildL,'PUNTO DE INICIO')
 local anchorStatus=statusText(startPanel,'Inicio NO marcado: acércate al primer puesto.',true)
 table.insert(startAnchorLabels,anchorStatus)
@@ -1093,6 +1093,67 @@ local function modelUpgradeLabels(part)
     end
     return table.concat(out,' ')
 end
+-- Classifications for WORKSTATION upgrades, not made-up purchase prices.
+-- World 1 sources: Lemon Stand -> LemonX.
+-- World 2 sources: Oxygen Pump -> Oxygen Bars.
+local SOURCE_NAMES={
+    [1]={'lemon stand','lemonstand','lemondash','lemon dash','lemon depot',
+        'lemon trading','lemon labs','lemon robotics','lemon republic','lemonx'},
+    [2]={'oxygen pump','oxygenpump','fast oxygen','fast o2','oxygen warehouse',
+        'oxygen center','oxygen garden','oxygen resort','oxygen bars'}
+}
+local WORK_UPGRADE_LABELS={
+    'juicer','cup stand','billboard','sugar mixer','street fliers',
+    'ice maker','bogo deals','cash register','higher fees',
+    'company vehicle','bigger fleet','refrigerated trucks','manager',
+    'cash upgrade','speed upgrade','upgrade cash','upgrade speed',
+    'income upgrade','speed boost','cash boost','production speed',
+    'income multiplier','automator','automatic register','automation',
+    'product display','kiosk','productivity','more tips',
+    'mejora dinero','mejora velocidad','administrador','automatización',
+    'mejorar ingresos','mejorar velocidad'
+}
+local WORK_BAD_LABELS={
+    'floor','wall','roof','fence','decoration','cosmetic','staircase',
+    'door','window','rebirth','investor','ascension','evolution',
+    'piso','pared','techo','decoración','renacimiento','portal','robux'
+}
+local function padIdentity(hit)
+    local p=hit and hit.part
+    if not p then return '' end
+    local names={p.Name}
+    if hit.obj then table.insert(names,hit.obj.Name) end
+    if p.Parent then
+        table.insert(names,p.Parent.Name)
+        if p.Parent.Parent and p.Parent.Parent~=Workspace then
+            table.insert(names,p.Parent.Parent.Name)
+        end
+    end
+    local n=0
+    for _,desc in ipairs(p:GetDescendants()) do
+        n=n+1
+        if n>55 then break end
+        if (desc:IsA('TextLabel') or desc:IsA('TextButton')) and #desc.Text<80 then
+            table.insert(names,desc.Text)
+        elseif desc:IsA('ProximityPrompt') then
+            table.insert(names,desc.ActionText or '')
+            table.insert(names,desc.ObjectText or '')
+        end
+    end
+    return table.concat(names,' '):lower()
+end
+local function isWorkUpgrade(hit)
+    local name=padIdentity(hit)
+    if hasAny(name,WORK_BAD_LABELS) then return false end
+    if hasAny(name,WORK_UPGRADE_LABELS) then return true end
+    if hasAny(name,SOURCE_NAMES[NOVA_CORE.detectedWorld] or {})
+        and hasAny(name,{'upgrade','mejora','speed','cash','x2','x3','boost',
+            'multiplier','manager','automat'}) then
+        return true
+    end
+    return false
+end
+
 -- Precio comprobable: buscamos primero la etiqueta asociada con la pieza o GUI.
 -- Evitamos asumir que el primer número del modelo representa el costo.
 local function priceFromAttribute(inst)
@@ -1159,29 +1220,30 @@ local function uniqueScopePrice(scope,maxDesc)
 end
 local function upgradeCost(hit)
     if not hit or not hit.obj or not hit.obj.Parent then return nil,'objeto ausente' end
-    local obj=hit.obj
+    local object=hit.obj
+    local part=hit.part
+    -- Un modelo completo puede incluir cientos de botones y precios ajenos:
+    -- leer SOLO el pad específico y los rótulos que contiene.
     local scopes={}
-    local function add(scope)
-        if scope and not table.find(scopes,scope) then table.insert(scopes,scope) end
+    if part then
+        table.insert(scopes,part)
+        if object~=part then table.insert(scopes,object) end
+    else
+        table.insert(scopes,object)
     end
-    add(obj)
-    if obj:IsA('GuiButton') then add(obj.Parent) end
-    if hit.part then
-        add(hit.part)
-        add(hit.part.Parent)
-        local model=hit.part:FindFirstAncestorOfClass('Model')
-        if model then add(model) end
-    end
-    local lastReason='sin precio'
+    local reason='sin precio del botón'
     for _,scope in ipairs(scopes) do
-        local value,why=uniqueScopePrice(scope,scope==hit.part and 65 or 100)
-        if value then return value,why end
-        if why=='varios precios distintos' then return nil,why end
-        lastReason=why or lastReason
+        local v,why=uniqueScopePrice(scope,70)
+        if v then return v,why end
+        if why=='varios precios distintos' then return nil,'precios ambiguos' end
+        reason=why or reason
     end
-    return nil,lastReason
+    if part then
+        local fromName=optionalPriceText(part.Name,part.Name)
+        if fromName then return fromName,'nombre del botón' end
+    end
+    return nil,reason
 end
-
 local function classify(interaction)
     local parent=interaction.Parent
     local parentName=parent and string.lower(parent.Name) or ''
@@ -1330,22 +1392,17 @@ local function plotOwnedByPlayer(part)
 end
 local function eligibleBuyArea(part)
     if not part or not part:IsDescendantOf(Workspace) then return false end
-    local known=plotOwnedByPlayer(part)
-    if known==false then return false end
-    local root=rootPart()
-    if not root then return false end
-    if known==true then return true end
-    if NOVA_CORE.buyAreaWorld~=NOVA_CORE.detectedWorld or not NOVA_CORE.buyAreaOrigin then
-        NOVA_CORE.buyAreaWorld=NOVA_CORE.detectedWorld
-        NOVA_CORE.buyAreaOrigin=root.Position
-    end
-    local nearPlayer=(root.Position-part.Position).Magnitude
-    local nearOrigin=(NOVA_CORE.buyAreaOrigin-part.Position).Magnitude
-    -- A falta de dueño fiable: zona de trabajo de 350 studs con
-    -- posibilidad de recoger botones adicionales al caminar.
-    return nearPlayer<=650 and nearOrigin<=650
+    local owned=plotOwnedByPlayer(part)
+    if owned==false then return false end
+    local start=NOVA_CORE.startAnchor[NOVA_CORE.detectedWorld]
+    if not start then return false end -- nunca adivinar que estamos al inicio
+    local d=(part.Position-start).Magnitude
+    if state.startOnly then return d<=NOVA_CORE.startRadius end
+    if owned==true then return true end
+    -- Sin dueño verificable, ampliar la búsqueda sólo dentro del sector
+    -- marcado. No volver a la selección indiscriminada de 6000 studs.
+    return d<=850
 end
-
 local function nextBuildTarget()
     local now=os.clock()
     local wallet=walletMoney()
@@ -1376,6 +1433,7 @@ local function nextBuildTarget()
         end
         local price=hit.price
         if not price then summary.unknown=summary.unknown+1;return end
+        if state.autoStations and not isWorkUpgrade(hit) then return end
         summary.priced=summary.priced+1
         if cheaper(wallet,price) then summary.unaffordable=summary.unaffordable+1;return end
         summary.payable=summary.payable+1
@@ -1630,6 +1688,7 @@ local function pricedBuildQueue()
         end
         local price=hit.price
         if not price or cheaper(wallet,price) then return end
+        if state.autoStations and not isWorkUpgrade(hit) then return end
         local d=part and distance(part) or 0
         if not guiButton and d>allowedActivationDistance(obj) and not state.buyTeleport then return end
         if not guiButton and now-(NOVA_CORE.teleportLog[obj] or -1e9)<NOVA_CORE.BUILD_RETRY_COOLDOWN then return end
@@ -1713,6 +1772,11 @@ runAutoUpgrades=function()
         return
     end
     if #ordered==0 then
+        if not NOVA_CORE.startAnchor[NOVA_CORE.detectedWorld] then
+            showBatchStatus('Antes de comprar: ve al inicio y pulsa «MARCAR INICIO AQUÍ».')
+            purchasePath('Inicio no marcado: no hay TPs automáticos.')
+            return
+        end
         showBatchStatus('Sin plataformas pagables con precio confiable.')
         purchasePath('Revisa la detección de precio y la parcela.')
         return
