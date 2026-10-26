@@ -681,7 +681,7 @@ local quickBuyEarth=roundedButton(cBuild,'AUTO COMPRAR: OFF',COLOR.nav,UDim2.new
 quickBuyEarth.TextColor3=COLOR.accent;outline(quickBuyEarth)
 table.insert(buildActionButtons,{button=quickBuyEarth,world=1})
 statusText(cBuild,'AUTO COMPRAR incluye TP. Va de zona en zona y compra de una en una.',true)
-toggle(cBuild,'Auto mejorar puestos (independiente)','autoStations')
+toggle(cBuild,'Mejorar puestos (aparte)','autoStations')
 addBuildSpeed(cBuild)
 table.insert(NOVA_CORE.zoneStatusLabels,statusText(cBuild,'Zona 1: Lemon Stand',true))
 table.insert(budgetLabels,statusText(cBuild,'Saldo: sin leer | 0 pagables',true))
@@ -714,7 +714,7 @@ local quickBuyMars=roundedButton(upgradeBox,'AUTO COMPRAR: OFF',COLOR.nav,UDim2.
 quickBuyMars.TextColor3=COLOR.accent;outline(quickBuyMars)
 table.insert(buildActionButtons,{button=quickBuyMars,world=2})
 statusText(upgradeBox,'AUTO COMPRAR incluye TP. Va de zona en zona y compra de una en una.',true)
-toggle(upgradeBox,'Auto mejorar puestos (independiente)','autoStations')
+toggle(upgradeBox,'Mejorar puestos (aparte)','autoStations')
 addBuildSpeed(upgradeBox)
 table.insert(NOVA_CORE.zoneStatusLabels,statusText(upgradeBox,'Zona 1: Oxygen Pump',true))
 table.insert(budgetLabels,statusText(upgradeBox,'Saldo: sin leer | 0 pagables',true))
@@ -1333,6 +1333,20 @@ local function updateHighlights()
 end
 NOVA_CORE.onToggle=function(key,reason)
     if key=='radar' then updateHighlights() end
+    if key=='autoStations' then
+        if state.autoStations then
+            state.buyTeleport=true
+            NOVA_CORE.buyCooldown={}
+            NOVA_CORE.buyFailCounts={}
+            NOVA_CORE.buyPending=nil
+            NOVA_CORE.setZoneStatus('AUTO PUESTOS: ON · buscando mejoras de producción')
+        else
+            NOVA_CORE.buyPending=nil
+            NOVA_CORE.setZoneStatus((state.buy or state.buyMars)
+                and 'AUTO PUESTOS OFF · Construcciones activas'
+                or 'AUTO PUESTOS OFF · Compra también apagada')
+        end
+    end
     if reason=='no-target' then
         -- Toggle remains available: show explicitly why there are no actions yet.
         if NOVA_CORE.statusNotice then NOVA_CORE.statusNotice('Activado sin objetivos compatibles para '..key..'. Revisa el escáner.') end
@@ -2046,7 +2060,12 @@ runAutoUpgrades=function()
     local hit=cheapest.hit
     local obj,part=hit.obj,hit.part
     if not obj or not obj.Parent or not part or not part.Parent then return end
-    if not state.buyTeleport then state.buyTeleport=true end
+    if not state.buyTeleport then
+        purchasePath('TP desactivado: el juego corrigió la posición o está pausado.')
+        showBatchStatus('Auto Mejoras pausado: movimiento no disponible.')
+        NOVA_CORE.setZoneStatus('TP bloqueado; apaga/enciende el modo tras revisar el juego.')
+        return
+    end
     local before=observedBoughtCount()
     local success=false
     local method='TP'
@@ -2762,6 +2781,9 @@ task.spawn(function()
         timeValue.Text=string.format('%02d:%02d',math.floor(elapsed/60),elapsed%60)
         local buildActive=(NOVA_CORE.detectedWorld==1 and (state.buy or state.autoStations))
             or (NOVA_CORE.detectedWorld==2 and (state.buyMars or state.autoStations))
+        if not buildActive and NOVA_CORE.buyWasActive then
+            NOVA_CORE.setZoneStatus('AUTO COMPRAR OFF · AUTO PUESTOS OFF')
+        end
         if buildActive and not NOVA_CORE.buyWasActive then
             local position=rootPart()
             if position then
