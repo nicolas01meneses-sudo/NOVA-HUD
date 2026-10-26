@@ -1824,7 +1824,8 @@ local function subtractBudget(wallet,price)
     return {rank=rank,n=amount,label='saldo reservado en lote'}
 end
 
-local function pricedBuildQueue()
+local function pricedBuildQueue(mode)
+    mode=mode or 'build'
     local wallet=walletMoney()
     if not wallet then
         NOVA_CORE.setZoneStatus('Zona en espera: saldo no reconocido')
@@ -1863,7 +1864,9 @@ local function pricedBuildQueue()
                 summary.priced=summary.priced+1
                 if not cheaper(wallet,price) then
                     summary.affordable=summary.affordable+1
-                    if isWorkUpgrade(hit) then summary.station=summary.station+1 end
+                    local work=isWorkUpgrade(hit)
+                    if work then summary.station=summary.station+1 end
+                    if (mode=='stations' and not work) or (mode=='build' and work) then continue end
                     local zone=NOVA_CORE.zoneOfHit(hit,landmarks)
                     if zone then
                         local cool=NOVA_CORE.buyCooldown[obj] or 0
@@ -1987,6 +1990,7 @@ runAutoUpgrades=function()
             end
             purchasePath('Siguiente botón o zona con precio pagable.')
         end
+        NOVA_CORE.buyModeRound=NOVA_CORE.buyModeRound+1
         NOVA_CORE.buyPending=nil
         if (pending.before~=nil and after~=nil and after>pending.before)
             or not pending.obj.Parent then
@@ -1994,10 +1998,25 @@ runAutoUpgrades=function()
         end
         return
     end
-    local money,ordered=pricedBuildQueue()
+    local world=NOVA_CORE.detectedWorld
+    local buying=(world==1 and state.buy) or (world==2 and state.buyMars)
+    local work=state.autoStations
+    if not buying and not work then return end
+    local mode=(buying and (not work or NOVA_CORE.buyModeRound%2==0))
+        and 'build' or 'stations'
+    local money,ordered=pricedBuildQueue(mode)
+    if buying and work and money and #ordered==0 then
+        local alternate=mode=='build' and 'stations' or 'build'
+        local altMoney,altQueue=pricedBuildQueue(alternate)
+        if #altQueue>0 then
+            mode=alternate
+            money,ordered=altMoney,altQueue
+        end
+    end
+    NOVA_CORE.buyActiveMode=mode
     if money then
-        budgetMessage=string.format('Saldo: %s | Pagables: %d\n%s',
-            tostring(money.label),NOVA_CORE.buyQueueStats.affordable or 0,
+        budgetMessage=string.format('Saldo: %s | Modo: %s\n%s',
+            tostring(money.label),mode=='build' and 'Construcción' or 'Puestos',
             NOVA_CORE.zoneStatus or 'Sin zona')
     end
     if not money then
@@ -2027,10 +2046,7 @@ runAutoUpgrades=function()
     local hit=cheapest.hit
     local obj,part=hit.obj,hit.part
     if not obj or not obj.Parent or not part or not part.Parent then return end
-    if not state.buyTeleport then
-        purchasePath('Activa Teletransportarse a mejoras.')
-        return
-    end
+    if not state.buyTeleport then state.buyTeleport=true end
     local before=observedBoughtCount()
     local success=false
     local method='TP'
@@ -2046,7 +2062,7 @@ runAutoUpgrades=function()
         return
     end
     NOVA_CORE.buyPending={obj=obj,part=part,at=os.clock(),
-        before=before,label=cheapest.price.label}
+        before=before,label=cheapest.price.label,mode=mode}
     NOVA_CORE.batchAttempts=NOVA_CORE.batchAttempts+1
     showBatchStatus('1 objetivo: '..tostring(cheapest.price.label)..' ('..method..')')
     purchasePath('Comprando de menor a mayor: '..tostring(cheapest.price.label))
@@ -2768,21 +2784,15 @@ task.spawn(function()
         for _,rule in ipairs({
             {key='fruit',bucket='fruit'},
             {key='ice',bucket='ice'},
-            {key='cash',bucket='cash'},
-            {key='buy',bucket='buy'},
-            {key='buyMars',bucket='buy'}
+            {key='cash',bucket='cash'}
         }) do
             local matchesWorld=(NOVA_CORE.detectedWorld==1 and rule.key~='ice' and rule.key~='buyMars')
                 or (NOVA_CORE.detectedWorld==2 and (rule.key=='ice' or rule.key=='buyMars' or rule.key=='autoStations'))
             if state[rule.key] and matchesWorld then
                 local isIce=rule.key=='ice'
-                local isBuy=rule.key=='buy' or rule.key=='buyMars' or rule.key=='autoStations'
                 local iceRadius=NOVA_CORE.iceSearchMeters*NOVA_CORE.STUDS_PER_METER
                 local h=nearby(hits[rule.bucket],isIce and iceRadius or NOVA_CORE.MAX_RANGE)
-                if isBuy then
-                    -- One zone-aware purchase routine; no global competing selector.
-                    runAutoUpgrades()
-                elseif isIce then
+                if isIce then
                     local sent=collectIceBatch()
                     local elapsed=os.clock()-NOVA_CORE.lastIceMoveAt
                     if state.iceTeleport and not (state.buyTeleport and buildActive)
@@ -2797,6 +2807,8 @@ task.spawn(function()
                 end
             end
         end
+        -- One scheduler for both separately controlled upgrade modes.
+        if buildActive then runAutoUpgrades() end
         footer.Text=string.format('Hielo: %d  |  Mejoras: %d',
             #hits.ice,#hits.buy+#guiUpgrades)
         if remoteBuyCaption then remoteBuyCaption.Text='TP por zonas: 1 mejora por vez' end
