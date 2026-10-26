@@ -1253,6 +1253,21 @@ local function upgradeCost(hit)
     if part then
         local fromName=optionalPriceText(part.Name,part.Name)
         if fromName then return fromName,'nombre del botón' end
+        -- UI al lado del pad: solo aceptar el GUI cuya Adornee sea
+        -- exactamente ESTA plataforma. No escanear todos los hermanos.
+        local holder=part.Parent
+        if holder then
+            for _,child in ipairs(holder:GetChildren()) do
+                if (child:IsA('SurfaceGui') or child:IsA('BillboardGui'))
+                    and child.Adornee==part then
+                    local v,why=uniqueScopePrice(child,60)
+                    if v then return v,'etiqueta vinculada al pad' end
+                    if why=='varios precios distintos' then
+                        return nil,'precio ambiguo junto al pad'
+                    end
+                end
+            end
+        end
     end
     return nil,reason
 end
@@ -2000,6 +2015,11 @@ local function findManageUpgrades(wallet)
             if #text<90 and (text:find('administrar',1,true)
                 or text:find('manage',1,true)) and not hasAny(text,BAD_PURCHASE) then
                 local root=title.Parent
+                -- El encabezado suele ser hermano de la lista de botones.
+                -- Subir una capa a un contenedor de panel, no a toda la UI.
+                if root and root.Parent and root.Parent:IsA('GuiObject') then
+                    root=root.Parent
+                end
                 if root and root:IsA('GuiObject') then
                     foundManage=true
                     for _,b in ipairs(root:GetDescendants()) do
@@ -2127,8 +2147,29 @@ runAutoUpgrades=function()
     local money,ordered=pricedBuildQueue(mode)
     -- Sólo alternar hacia el menú ADMINISTRAR cuando está abierto.
     -- No usar los pads de construcción como sustitutos de puestos.
-    if buying and work and #ordered==0 then
-        NOVA_CORE.stationUiStatus='Construcciones sin objetivo pagable. Revisa ADMINISTRAR para puestos.'
+    if buying and work and #ordered==0 and mode=='build' then
+        -- Cuando la construcción está temporalmente sin objetivos,
+        -- permitir que el menú de puestos avance por separado.
+        local uiWallet=walletMoney()
+        if uiWallet then
+            local list,open=findManageUpgrades(uiWallet)
+            if #list>0 then
+                local item=list[1]
+                local ok,reason=attemptInteraction(item.hit,NOVA_CORE.BATCH_INTERACTION_DELAY)
+                if ok then
+                    NOVA_CORE.buyPending={obj=item.obj,part=nil,at=os.clock(),
+                        before=nil,label=item.price.label,mode='stations'}
+                    NOVA_CORE.batchAttempts=NOVA_CORE.batchAttempts+1
+                    showBatchStatus('ADMINISTRAR: intento de mejora #'..NOVA_CORE.batchAttempts)
+                else
+                    showBatchStatus('ADMINISTRAR: '..tostring(reason))
+                end
+                return
+            end
+            if not open then
+                NOVA_CORE.stationUiStatus='Abre ADMINISTRAR para continuar con los puestos'
+            end
+        end
     end
     NOVA_CORE.buyActiveMode=mode
     if money then
