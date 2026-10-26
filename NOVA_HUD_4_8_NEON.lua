@@ -2490,7 +2490,8 @@ task.spawn(function()
     while running and gui.Parent do
         local elapsed=math.floor(os.clock()-startTime)
         timeValue.Text=string.format('%02d:%02d',math.floor(elapsed/60),elapsed%60)
-        local buildActive=(NOVA_CORE.detectedWorld==1 and state.buy) or (NOVA_CORE.detectedWorld==2 and state.buyMars)
+        local buildActive=(NOVA_CORE.detectedWorld==1 and (state.buy or state.autoStations))
+            or (NOVA_CORE.detectedWorld==2 and (state.buyMars or state.autoStations))
         if buildActive and not NOVA_CORE.buyWasActive then
             local position=rootPart()
             if position then
@@ -2514,13 +2515,14 @@ task.spawn(function()
             {key='ice',bucket='ice'},
             {key='cash',bucket='cash'},
             {key='buy',bucket='buy'},
-            {key='buyMars',bucket='buy'}
+            {key='buyMars',bucket='buy'},
+            {key='autoStations',bucket='buy'}
         }) do
             local matchesWorld=(NOVA_CORE.detectedWorld==1 and rule.key~='ice' and rule.key~='buyMars')
-                or (NOVA_CORE.detectedWorld==2 and (rule.key=='ice' or rule.key=='buyMars'))
+                or (NOVA_CORE.detectedWorld==2 and (rule.key=='ice' or rule.key=='buyMars' or rule.key=='autoStations'))
             if state[rule.key] and matchesWorld then
                 local isIce=rule.key=='ice'
-                local isBuy=rule.key=='buy' or rule.key=='buyMars'
+                local isBuy=rule.key=='buy' or rule.key=='buyMars' or rule.key=='autoStations'
                 local iceRadius=NOVA_CORE.iceSearchMeters*NOVA_CORE.STUDS_PER_METER
                 local h=nearby(hits[rule.bucket],isIce and iceRadius or NOVA_CORE.MAX_RANGE)
                 if isBuy then
