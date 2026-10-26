@@ -96,7 +96,7 @@ NOVA_CORE.remoteBuyAttempts=0
 NOVA_CORE.batchAttempts=0
 NOVA_CORE.latestBatchStatus='No se han enviado compras rápidas'
 NOVA_CORE.BUILD_RETRY_COOLDOWN=1.05
-NOVA_CORE.BUY_SEARCH_STUDS=6000
+NOVA_CORE.BUY_SEARCH_STUDS=1800
 NOVA_CORE.touchMoveAt=-1e9
 NOVA_CORE.buyRoute={active=false,target=nil,world=nil}
 NOVA_CORE.buyCooldown={} -- failed physical pads wait before retry
@@ -1948,11 +1948,11 @@ end
 -- Motor de compras sin rutas ni caminata: un TP por objetivo.
 runAutoUpgrades=function()
     local now=os.clock()
-    if now-NOVA_CORE.lastBatchRun<.36 then return end
+    if now-NOVA_CORE.lastBatchRun<.20 then return end
     NOVA_CORE.lastBatchRun=now
     local pending=NOVA_CORE.buyPending
     if pending then
-        if now-pending.at<1.45 then return end
+        if now-pending.at<.8 then return end
         local after=observedBoughtCount()
         if pending.before~=nil and after~=nil and after>pending.before then
             showBatchStatus('Compras confirmadas: +'..(after-pending.before))
@@ -1961,15 +1961,23 @@ runAutoUpgrades=function()
             (pending.part and not pending.part:IsDescendantOf(Workspace)) then
             showBatchStatus('La plataforma desapareció: posible compra.')
         else
-            NOVA_CORE.buyCooldown[pending.obj]=now+3.1
+            NOVA_CORE.buyCooldown[pending.obj]=now+1.15
             showBatchStatus('TP realizado; compra no confirmada.')
             purchasePath('Revisando el siguiente precio.')
         end
         NOVA_CORE.buyPending=nil
-        scanWorld()
+        if (pending.before~=nil and after~=nil and after>pending.before)
+            or not pending.obj.Parent then
+            scanWorld()
+        end
         return
     end
     local money,ordered=pricedBuildQueue()
+    if money then
+        budgetMessage=string.format('Saldo: %s | Pagables: %d\n%s',
+            tostring(money.label),NOVA_CORE.buyQueueStats.affordable or 0,
+            NOVA_CORE.zoneStatus or 'Sin zona')
+    end
     if not money then
         showBatchStatus('Sin saldo confiable: compras pausadas.')
         return
@@ -2725,7 +2733,7 @@ task.spawn(function()
             NOVA_CORE.buyCooldown={} -- nueva sesión de compras
         end
         NOVA_CORE.buyWasActive=buildActive
-        if os.clock()-lastRefresh>(buildActive and 1.7 or (NOVA_CORE.detectedWorld==2 and state.ice and 2.5 or 9)) then doRefresh() end
+        if os.clock()-lastRefresh>(buildActive and 1.05 or (NOVA_CORE.detectedWorld==2 and state.ice and 2.5 or 9)) then doRefresh() end
         if os.clock()-lastInvestorRefresh>=1.25 then
             lastInvestorRefresh=os.clock()
             if NOVA_CORE.detectedWorld==1 or state.autoRebirth then updateInvestors(true) end
@@ -2739,8 +2747,7 @@ task.spawn(function()
             {key='ice',bucket='ice'},
             {key='cash',bucket='cash'},
             {key='buy',bucket='buy'},
-            {key='buyMars',bucket='buy'},
-            {key='autoStations',bucket='buy'}
+            {key='buyMars',bucket='buy'}
         }) do
             local matchesWorld=(NOVA_CORE.detectedWorld==1 and rule.key~='ice' and rule.key~='buyMars')
                 or (NOVA_CORE.detectedWorld==2 and (rule.key=='ice' or rule.key=='buyMars' or rule.key=='autoStations'))
@@ -2750,9 +2757,7 @@ task.spawn(function()
                 local iceRadius=NOVA_CORE.iceSearchMeters*NOVA_CORE.STUDS_PER_METER
                 local h=nearby(hits[rule.bucket],isIce and iceRadius or NOVA_CORE.MAX_RANGE)
                 if isBuy then
-                    -- Una sola plataforma, ordenada por costo y luego por distancia.
-                    -- Cada intento se verifica antes de tomar el siguiente objetivo.
-                    nextBuildTarget() -- mantiene saldo/diagnóstico actualizados
+                    -- One zone-aware purchase routine; no global competing selector.
                     runAutoUpgrades()
                 elseif isIce then
                     local sent=collectIceBatch()
@@ -2771,10 +2776,14 @@ task.spawn(function()
         end
         footer.Text=string.format('Hielo: %d  |  Mejoras: %d',
             #hits.ice,#hits.buy+#guiUpgrades)
-        if remoteBuyCaption then remoteBuyCaption.Text='TP secuencial: 1 mejora' end
+        if remoteBuyCaption then remoteBuyCaption.Text='TP por zonas: 1 mejora por vez' end
         if os.clock()-lastBudgetRefresh>1.25 then
             lastBudgetRefresh=os.clock()
-            if not buildActive then nextBuildTarget() end
+            if not buildActive then
+                local wallet=walletMoney()
+                budgetMessage=wallet and ('Saldo: '..wallet.label..' | AUTO PROGRESO apagado')
+                    or 'Saldo no reconocido | AUTO PROGRESO apagado'
+            end
             for _,v in ipairs(budgetLabels) do
                 if v and v.Parent then v.Text=budgetMessage end
             end
