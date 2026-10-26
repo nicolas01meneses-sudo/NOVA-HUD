@@ -758,7 +758,7 @@ buildWorld2.TextColor3=COLOR.accent;outline(buildWorld2)
 buildWorld2.MouseButton1Click:Connect(function() showPage('World2') end)
 local buildFastPanel=section(buildL,'COMPRA POR PRECIO')
 statusText(buildFastPanel,'Botones iniciales primero; dentro de esa zona, menor precio.',true)
-statusText(buildFastPanel,'Puestos: prioriza mejoras de ganancias, velocidad y administradores.',true)
+statusText(buildFastPanel,'Puestos ON: compra mejoras reconocidas de ganancias, velocidad y managers.',true)
 local startPanel=section(buildL,'PUNTO DE INICIO')
 local anchorStatus=statusText(startPanel,'Inicio NO marcado: acércate al primer puesto.',true)
 table.insert(startAnchorLabels,anchorStatus)
@@ -1669,8 +1669,11 @@ end
 local function pricedBuildQueue()
     local wallet=walletMoney()
     if not wallet then return nil,{} end
+    if not NOVA_CORE.startAnchor[NOVA_CORE.detectedWorld] then
+        return wallet,{} -- sin punto de inicio nunca usar un botón al azar
+    end
     local now=os.clock()
-    local result,seen={},{}
+    local result,seen={},{} 
     local function add(hit)
         local obj=hit.obj
         if not obj or not obj.Parent or seen[obj] then return end
@@ -1777,7 +1780,9 @@ runAutoUpgrades=function()
             purchasePath('Inicio no marcado: no hay TPs automáticos.')
             return
         end
-        showBatchStatus('Sin plataformas pagables con precio confiable.')
+        showBatchStatus(state.autoStations
+            and 'Sin mejoras de puestos con precio verificable dentro del radio.'
+            or 'Sin botones iniciales pagables con precio verificable.')
         purchasePath('Revisa la detección de precio y la parcela.')
         return
     end
@@ -2188,6 +2193,13 @@ local function countBlueParts()
 end
 local function refresh()
     scanWorld()
+    local saved=NOVA_CORE.startAnchor[NOVA_CORE.detectedWorld]
+    local labelText=saved and
+        ('Inicio marcado en Mundo '..NOVA_CORE.detectedWorld..' | radio '..NOVA_CORE.startRadius..' studs')
+        or 'Inicio sin marcar: Build > MARCAR INICIO AQUÍ'
+    for _,label in ipairs(startAnchorLabels) do
+        if label and label.Parent then label.Text=labelText end
+    end
     updateHighlights()
     local f,i,c,u=#hits.fruit,#hits.ice,#hits.cash,#hits.buy
     scanStatus.Text=string.format('Candidatos próximos (125 studs):\nfruta %d | hielo %d | dinero %d | mejoras %d\nBotones UI de mejoras: %d',f,i,c,u,#guiUpgrades)
