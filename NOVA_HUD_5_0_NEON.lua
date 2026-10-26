@@ -100,6 +100,7 @@ NOVA_CORE.BUY_SEARCH_STUDS=1800
 NOVA_CORE.touchMoveAt=-1e9
 NOVA_CORE.buyRoute={active=false,target=nil,world=nil}
 NOVA_CORE.buyCooldown={} -- failed physical pads wait before retry
+NOVA_CORE.buyFailCounts={} -- prevent getting stuck at the same failed pad
 NOVA_CORE.buyAreaOrigin=nil -- reference near player's tycoon
 NOVA_CORE.buyAreaWorld=nil
 NOVA_CORE.buyWasActive=false
@@ -1958,15 +1959,24 @@ runAutoUpgrades=function()
         if now-pending.at<.8 then return end
         local after=observedBoughtCount()
         if pending.before~=nil and after~=nil and after>pending.before then
+            NOVA_CORE.buyFailCounts[pending.obj]=nil
             showBatchStatus('Compras confirmadas: +'..(after-pending.before))
             purchasePath('Compra verificada: '..tostring(pending.label))
         elseif not pending.obj.Parent or
             (pending.part and not pending.part:IsDescendantOf(Workspace)) then
             showBatchStatus('La plataforma desapareció: posible compra.')
         else
-            NOVA_CORE.buyCooldown[pending.obj]=now+1.15
-            showBatchStatus('TP realizado; compra no confirmada.')
-            purchasePath('Revisando el siguiente precio.')
+            local misses=(NOVA_CORE.buyFailCounts[pending.obj] or 0)+1
+            NOVA_CORE.buyFailCounts[pending.obj]=misses
+            -- After repeated unconfirmed attempts, move on to another station
+            -- instead of returning to the same unsuccessful pad forever.
+            NOVA_CORE.buyCooldown[pending.obj]=now+(misses>=3 and 12 or 1.15)
+            if misses>=3 then
+                showBatchStatus('Sin compra confirmada tras '..misses..' intentos; buscando siguiente zona.')
+            else
+                showBatchStatus('TP realizado; compra aún no confirmada.')
+            end
+            purchasePath('Siguiente botón o zona con precio pagable.')
         end
         NOVA_CORE.buyPending=nil
         if (pending.before~=nil and after~=nil and after>pending.before)
@@ -2734,6 +2744,7 @@ task.spawn(function()
                 NOVA_CORE.buyAreaWorld=NOVA_CORE.detectedWorld
             end
             NOVA_CORE.buyCooldown={} -- nueva sesión de compras
+            NOVA_CORE.buyFailCounts={}
         end
         NOVA_CORE.buyWasActive=buildActive
         if os.clock()-lastRefresh>(buildActive and 1.05 or (NOVA_CORE.detectedWorld==2 and state.ice and 2.5 or 9)) then doRefresh() end
