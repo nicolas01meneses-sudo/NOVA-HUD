@@ -1985,6 +1985,64 @@ local function observedBoughtCount()
     return nil
 end
 
+
+-- El menú ADMINISTRAR es distinto a los pads físicos. Nunca se buscan
+-- remotes internos ni botones de tienda o Robux: solo botones visibles
+-- y con costo legible dentro del panel de administración del juego.
+local function findManageUpgrades(wallet)
+    local results={}
+    local foundManage=false
+    local checked={}
+    for _,title in ipairs(playerGui:GetDescendants()) do
+        if (title:IsA('TextLabel') or title:IsA('TextButton'))
+            and not title:IsDescendantOf(gui) and isVisibleGui(title) then
+            local text=(title.Text or ''):lower()
+            if #text<90 and (text:find('administrar',1,true)
+                or text:find('manage',1,true)) and not hasAny(text,BAD_PURCHASE) then
+                local root=title.Parent
+                if root and root:IsA('GuiObject') then
+                    foundManage=true
+                    for _,b in ipairs(root:GetDescendants()) do
+                        if b:IsA('GuiButton') and b~=title and not checked[b]
+                            and isVisibleGui(b) then
+                            checked[b]=true
+                            local words=(b:IsA('TextButton') and b.Text or ''):lower()
+                            for _,node in ipairs(b:GetDescendants()) do
+                                if node:IsA('TextLabel') and #words<140 then
+                                    words=words..' '..node.Text:lower()
+                                end
+                            end
+                            -- Rechazar dinero premium, tiendas y botones de navegación.
+                            if hasAny(words,{'mejorar','upgrade','comprar','buy'})
+                                and not hasAny(words,BAD_PURCHASE) then
+                                local parent=b.Parent
+                                local context=(parent and parent.Name or ''):lower()
+                                if not hasAny(context,{'robux','shop','store','gamepass'}) then
+                                    local price=priceFromAttribute(b)
+                                    if not price and parent then
+                                        price=uniqueScopePrice(parent,36)
+                                    end
+                                    if price and not cheaper(wallet,price)
+                                        and not NOVA_CORE.buySkipped[b]
+                                        and os.clock()>=(NOVA_CORE.buyCooldown[b] or 0) then
+                                        table.insert(results,{obj=b,part=nil,price=price,hit={obj=b,part=nil}})
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    table.sort(results,function(a,b)
+        if cheaper(a.price,b.price) then return true end
+        if cheaper(b.price,a.price) then return false end
+        return a.obj.Name<b.obj.Name
+    end)
+    return results,foundManage
+end
+
 -- Motor de compras sin rutas ni caminata: un TP por objetivo.
 runAutoUpgrades=function()
     local now=os.clock()
@@ -2030,14 +2088,47 @@ runAutoUpgrades=function()
     if not buying and not work then return end
     local mode=(buying and (not work or NOVA_CORE.buyModeRound%2==0))
         and 'build' or 'stations'
-    local money,ordered=pricedBuildQueue(mode)
-    if buying and work and money and #ordered==0 then
-        local alternate=mode=='build' and 'stations' or 'build'
-        local altMoney,altQueue=pricedBuildQueue(alternate)
-        if #altQueue>0 then
-            mode=alternate
-            money,ordered=altMoney,altQueue
+    -- Intentar primero los controles visibles de ADMINISTRAR para puestos.
+    -- No confundirlos con TouchTransmitters del mapa.
+    if mode=='stations' then
+        local moneyUi=walletMoney()
+        if not moneyUi then
+            showBatchStatus('AUTO PUESTOS: no se pudo leer tu dinero.')
+            return
         end
+        local options,foundManage=findManageUpgrades(moneyUi)
+        if #options>0 then
+            local item=options[1]
+            local before=observedBoughtCount()
+            local ok,reason=attemptInteraction(item.hit,NOVA_CORE.BATCH_INTERACTION_DELAY)
+            if not ok then
+                showBatchStatus('ADMINISTRAR: '..tostring(reason))
+                NOVA_CORE.setZoneStatus('AUTO PUESTOS: abre el menú sin taparlo con NOVA')
+                return
+            end
+            NOVA_CORE.buyPending={obj=item.obj,part=nil,at=os.clock(),
+                before=before,label=item.price.label,mode='stations'}
+            NOVA_CORE.batchAttempts=NOVA_CORE.batchAttempts+1
+            NOVA_CORE.setZoneStatus('AUTO PUESTOS: mejora enviada desde ADMINISTRAR')
+            showBatchStatus('ADMINISTRAR: intento #'..NOVA_CORE.batchAttempts
+                ..' | '..item.price.label..' (sin confirmar)')
+            return
+        end
+        NOVA_CORE.stationUiStatus=foundManage
+            and 'ADMINISTRAR: no se encontraron mejoras pagables con precio claro'
+            or 'AUTO PUESTOS: abre ADMINISTRAR en el juego para leer sus mejoras'
+        if not buying then
+            showBatchStatus(NOVA_CORE.stationUiStatus)
+            NOVA_CORE.setZoneStatus(NOVA_CORE.stationUiStatus)
+            return
+        end
+        mode='build'
+    end
+    local money,ordered=pricedBuildQueue(mode)
+    -- Sólo alternar hacia el menú ADMINISTRAR cuando está abierto.
+    -- No usar los pads de construcción como sustitutos de puestos.
+    if buying and work and #ordered==0 then
+        NOVA_CORE.stationUiStatus='Construcciones sin objetivo pagable. Revisa ADMINISTRAR para puestos.'
     end
     NOVA_CORE.buyActiveMode=mode
     if money then
