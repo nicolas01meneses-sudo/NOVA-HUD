@@ -1417,7 +1417,7 @@ NOVA_CORE.autoLocateStart=function()
         if p and p:IsDescendantOf(Workspace)
             and plotOwnedByPlayer(p)~=false then
             local d=(p.Position-root.Position).Magnitude
-            if d<=270 then
+            if d<=1200 then
                 local value=upgradeCost(hit)
                 if value then
                     eligibleCount=eligibleCount+1
@@ -1434,7 +1434,7 @@ NOVA_CORE.autoLocateStart=function()
                                 and (q.rank<w.rank+1 or q.n<=w.n*.1)
                         end
                     end
-                    if starter or economicallyPlausible then
+                    if starter or (d<=270 and economicallyPlausible) then
                         if not best
                             or (starter and not preferStarter)
                             or (starter==preferStarter and
@@ -1462,6 +1462,69 @@ NOVA_CORE.autoLocateStart=function()
     return false,'Los botones próximos parecen caros; marca el inicio manualmente'
 end
 
+-- NOVA Zones. Known production sources take precedence over geometry.
+-- Geometry is only a fallback when game object labels are generic.
+NOVA_CORE.explicitZone=function(hit)
+    if not hit or not hit.part then return nil end
+    local text=padIdentity(hit)
+    local names=NOVA_CORE.zoneNames[NOVA_CORE.detectedWorld] or {}
+    for index,name in ipairs(names) do
+        if text:find(name:lower(),1,true) then return index end
+    end
+    if NOVA_CORE.detectedWorld==2 then
+        if hasAny(text,{'fast oxygen','fastoxygen','fast o2','fasto2'}) then return 2 end
+        if hasAny(text,{'oxygen pump','oxygenpump'}) then return 1 end
+    end
+    if NOVA_CORE.detectedWorld==1 then
+        if hasAny(text,{'lemon dash','lemondash'}) then return 2 end
+        if hasAny(text,{'lemon stand','lemonstand'}) then return 1 end
+    end
+    return nil
+end
+NOVA_CORE.zoneLandmarks=function()
+    local landmarks={}
+    local start=NOVA_CORE.startAnchor[NOVA_CORE.detectedWorld]
+    for _,hit in ipairs(hits.buy) do
+        if hit.part and hit.part:IsDescendantOf(Workspace) and
+            plotOwnedByPlayer(hit.part)~=false and
+            (not start or (hit.part.Position-start).Magnitude<=1000) then
+            local index=NOVA_CORE.explicitZone(hit)
+            if index then
+                landmarks[index]=landmarks[index] or {}
+                table.insert(landmarks[index],hit.part.Position)
+            end
+        end
+    end
+    return landmarks
+end
+NOVA_CORE.zoneOfHit=function(hit,landmarks)
+    if not hit or not hit.part then return nil end
+    local known=NOVA_CORE.explicitZone(hit)
+    if known then return known end
+    local part=hit.part
+    -- Buttons with generic names often belong to the nearest named station.
+    local nearIndex,nearDist=nil,120
+    for index,positions in pairs(landmarks or {}) do
+        for _,position in ipairs(positions) do
+            local d=(part.Position-position).Magnitude
+            if d<nearDist then nearDist=d;nearIndex=index end
+        end
+    end
+    if nearIndex then return nearIndex end
+    local anchor=NOVA_CORE.startAnchor[NOVA_CORE.detectedWorld]
+    if not anchor then return 1 end
+    -- Fallback: bands radiating outward from the verified starter location.
+    local flat=Vector3.new(part.Position.X-anchor.X,0,part.Position.Z-anchor.Z).Magnitude
+    local names=NOVA_CORE.zoneNames[NOVA_CORE.detectedWorld] or {'Inicio'}
+    return math.clamp(math.floor(flat/120)+1,1,#names)
+end
+NOVA_CORE.setZoneStatus=function(message)
+    NOVA_CORE.zoneStatus=message
+    for _,label in ipairs(NOVA_CORE.zoneStatusLabels) do
+        if label and label.Parent then label.Text=message end
+    end
+end
+
 local function eligibleBuyArea(part)
     if not part or not part:IsDescendantOf(Workspace) then return false end
     local owned=plotOwnedByPlayer(part)
@@ -1469,10 +1532,9 @@ local function eligibleBuyArea(part)
     local start=NOVA_CORE.startAnchor[NOVA_CORE.detectedWorld]
     if not start then return false end -- nunca adivinar que estamos al inicio
     local d=(part.Position-start).Magnitude
-    if state.startOnly then return d<=NOVA_CORE.startRadius end
-    if owned==true then return true end
-    -- Sin dueño verificable, ampliar la búsqueda sólo dentro del sector
-    -- marcado. No volver a la selección indiscriminada de 6000 studs.
+    -- Zone progression covers all reachable stations, not only the first 190 studs.
+    -- Honor explicit ownership whenever available and constrain unknown plots.
+    if owned==true then return d<=1250 end
     return d<=850
 end
 local function nextBuildTarget()
@@ -1751,60 +1813,100 @@ end
 
 local function pricedBuildQueue()
     local wallet=walletMoney()
-    if not wallet then return nil,{} end
-    if not NOVA_CORE.startAnchor[NOVA_CORE.detectedWorld] then
-        local ok,reason=NOVA_CORE.autoLocateStart()
-        if not ok then
+    if not wallet then
+        NOVA_CORE.setZoneStatus('Zona en espera: saldo no reconocido')
+        return nil,{}
+    end
+    local world=NOVA_CORE.detectedWorld
+    if not NOVA_CORE.startAnchor[world] then
+        local located,reason=NOVA_CORE.autoLocateStart()
+        if not located then
             NOVA_CORE.buyPendingHint=reason
             NOVA_CORE.buyQueueStats={seen=#hits.buy,area=0,priced=0,affordable=0,station=0}
+            NOVA_CORE.setZoneStatus('Zona sin identificar: '..reason)
             return wallet,{}
         end
     end
     local now=os.clock()
-    local result,seen={},{}
+    local groups,waiting,seen={}, {}, {}
+    local landmarks=NOVA_CORE.zoneLandmarks()
+    local names=NOVA_CORE.zoneNames[world] or {'Inicio'}
     local summary={seen=#hits.buy,area=0,priced=0,affordable=0,station=0}
-    local function add(hit)
-        local obj=hit.obj
-        if not obj or not obj.Parent or seen[obj] then return end
-        local part=hit.part
-        local guiButton=obj:IsA('GuiButton')
-        if guiButton then
-            if not isVisibleGui(obj) then return end
-        elseif not part or not part:IsDescendantOf(Workspace)
-            or distance(part)>NOVA_CORE.BUY_SEARCH_STUDS
-            or (state.needed and part.Transparency>.85) or not eligibleBuyArea(part) then return end
-        summary.area=summary.area+1
-        if NOVA_CORE.buyCooldown[obj] and now<NOVA_CORE.buyCooldown[obj] then return end
-        if not hit.priceReadAt or now-hit.priceReadAt>1 then
-            hit.price,hit.priceReason=upgradeCost(hit)
-            hit.priceReadAt=now
+    for _,hit in ipairs(hits.buy) do
+        local obj,part=hit.obj,hit.part
+        if obj and obj.Parent and part and part:IsDescendantOf(Workspace)
+            and not seen[obj] and distance(part)<=NOVA_CORE.BUY_SEARCH_STUDS
+            and (not state.needed or part.Transparency<=.85)
+            and eligibleBuyArea(part) then
+            seen[obj]=true
+            summary.area=summary.area+1
+            -- Never use an old price for a button that has changed.
+            if not hit.priceReadAt or now-hit.priceReadAt>.75 then
+                hit.price,hit.priceReason=upgradeCost(hit)
+                hit.priceReadAt=now
+            end
+            local price=hit.price
+            if price then
+                summary.priced=summary.priced+1
+                if not cheaper(wallet,price) then
+                    summary.affordable=summary.affordable+1
+                    if isWorkUpgrade(hit) then summary.station=summary.station+1 end
+                    local zone=NOVA_CORE.zoneOfHit(hit,landmarks)
+                    if zone then
+                        local cool=NOVA_CORE.buyCooldown[obj] or 0
+                        local lastMove=NOVA_CORE.teleportLog[obj] or -1e9
+                        if cool>now or now-lastMove<NOVA_CORE.BUILD_RETRY_COOLDOWN then
+                            waiting[zone]=math.max(waiting[zone] or 0,cool,lastMove+NOVA_CORE.BUILD_RETRY_COOLDOWN)
+                        else
+                            groups[zone]=groups[zone] or {}
+                            table.insert(groups[zone],{hit=hit,price=price,d=distance(part),zone=zone})
+                        end
+                    end
+                end
+            end
         end
-        local price=hit.price
-        if not price then return end
-        summary.priced=summary.priced+1
-        if cheaper(wallet,price) then return end
-        summary.affordable=summary.affordable+1
-        if isWorkUpgrade(hit) then summary.station=summary.station+1 end
-        -- Auto Build ON + Puestos ON: ambos; Auto Build OFF + Puestos ON:
-        -- sólo mejorar puestos (no ocultar construcciones normales).
-        local onlyStations=state.autoStations and not (state.buy or state.buyMars)
-        if onlyStations and not isWorkUpgrade(hit) then return end
-        local d=part and distance(part) or 0
-        if not guiButton and d>allowedActivationDistance(obj) and not state.buyTeleport then return end
-        if not guiButton and now-(NOVA_CORE.teleportLog[obj] or -1e9)<NOVA_CORE.BUILD_RETRY_COOLDOWN then return end
-        if guiButton and now-(NOVA_CORE.lastAttempt[obj] or -1e9)<NOVA_CORE.BATCH_INTERACTION_DELAY then return end
-        seen[obj]=true
-        table.insert(result,{hit=hit,price=price,d=d})
     end
-    for _,hit in ipairs(hits.buy) do add(hit) end
-    -- Excluir menu de UI; solo plataformas fisicas.
-    table.sort(result,function(a,b)
-        if cheaper(a.price,b.price) then return true end
-        if cheaper(b.price,a.price) then return false end
-        return a.d<b.d
-    end)
     NOVA_CORE.buyQueueStats=summary
-    return wallet,result
+    for _,list in pairs(groups) do
+        table.sort(list,function(a,b)
+            if cheaper(a.price,b.price) then return true end
+            if cheaper(b.price,a.price) then return false end
+            return a.d<b.d
+        end)
+    end
+    local current=math.clamp(NOVA_CORE.zoneStage[world] or 1,1,#names)
+    local chosen=nil
+    -- Continue at the current station; when exhausted, move to the next one.
+    -- If the active zone is cooling down for less than 2 seconds, wait.
+    if groups[current] and #groups[current]>0 then
+        chosen=current
+    elseif waiting[current] and waiting[current]-now<2 then
+        NOVA_CORE.setZoneStatus('Zona '..current..': '..names[current]..' · verificando botón')
+        return wallet,{}
+    else
+        for index=current+1,#names do
+            if groups[index] and #groups[index]>0 then chosen=index;break end
+        end
+        if not chosen then
+            -- Backfill old businesses after reaching the end of the progression.
+            for index=1,current-1 do
+                if groups[index] and #groups[index]>0 then chosen=index;break end
+            end
+        end
+    end
+    if not chosen then
+        local why=summary.affordable==0 and 'sin mejoras pagables'
+            or 'sin botones disponibles (espera de reintentos)'
+        NOVA_CORE.setZoneStatus('Zona '..current..': '..names[current]..' · '..why)
+        return wallet,{}
+    end
+    if chosen~=current then
+        NOVA_CORE.zoneStage[world]=chosen
+    end
+    local msg='Zona '..chosen..'/'..#names..': '..names[chosen]
+        ..' · '..#groups[chosen]..' mejora(s) disponible(s)'
+    NOVA_CORE.setZoneStatus(msg)
+    return wallet,groups[chosen]
 end
 
 local function showBatchStatus(message)
