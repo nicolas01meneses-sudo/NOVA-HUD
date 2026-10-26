@@ -752,11 +752,11 @@ local resetUiScale=nil
 do
 local buildL,buildR=columns(pBuild)
 local buildIntro=section(buildL,'AUTO MEJORAS / BUILD')
-statusText(buildIntro,'Busca el inicio automáticamente. Puedes corregirlo con Marcar inicio aquí.',true)
-local buildWorld1=roundedButton(buildIntro,'🍋  ABRIR AUTO BUILD TIERRA',COLOR.card,UDim2.new(1,0,0,46))
+statusText(buildIntro,'AUTO PROGRESO incluye TP y mejoras de puestos. El botón único está en el mundo correspondiente.',true)
+local buildWorld1=roundedButton(buildIntro,'🍋  AUTO PROGRESO TIERRA',COLOR.card,UDim2.new(1,0,0,46))
 buildWorld1.TextColor3=COLOR.accent;outline(buildWorld1)
 buildWorld1.MouseButton1Click:Connect(function() showPage('World1') end)
-local buildWorld2=roundedButton(buildIntro,'◈  ABRIR AUTO BUILD MARTE',COLOR.card,UDim2.new(1,0,0,46))
+local buildWorld2=roundedButton(buildIntro,'◈  AUTO PROGRESO MARTE',COLOR.card,UDim2.new(1,0,0,46))
 buildWorld2.TextColor3=COLOR.accent;outline(buildWorld2)
 buildWorld2.MouseButton1Click:Connect(function() showPage('World2') end)
 local buildFastPanel=section(buildL,'COMPRA POR PRECIO')
@@ -1491,7 +1491,10 @@ NOVA_CORE.zoneLandmarks=function()
             local index=NOVA_CORE.explicitZone(hit)
             if index then
                 landmarks[index]=landmarks[index] or {}
-                table.insert(landmarks[index],hit.part.Position)
+                -- Limit landmark samples to keep large tycoons responsive on mobile.
+                if #landmarks[index]<12 then
+                    table.insert(landmarks[index],hit.part.Position)
+                end
             end
         end
     end
