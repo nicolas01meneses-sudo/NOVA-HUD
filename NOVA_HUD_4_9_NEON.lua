@@ -1100,13 +1100,13 @@ end
 -- Classifications for WORKSTATION upgrades, not made-up purchase prices.
 -- World 1 sources: Lemon Stand -> LemonX.
 -- World 2 sources: Oxygen Pump -> Oxygen Bars.
-local SOURCE_NAMES={
+NOVA_CORE.SOURCE_NAMES={
     [1]={'lemon stand','lemonstand','lemondash','lemon dash','lemon depot',
         'lemon trading','lemon labs','lemon robotics','lemon republic','lemonx'},
     [2]={'oxygen pump','oxygenpump','fast oxygen','fast o2','oxygen warehouse',
         'oxygen center','oxygen garden','oxygen resort','oxygen bars'}
 }
-local WORK_UPGRADE_LABELS={
+NOVA_CORE.WORK_UPGRADE_LABELS={
     'juicer','cup stand','billboard','sugar mixer','street fliers',
     'ice maker','bogo deals','cash register','higher fees',
     'company vehicle','bigger fleet','refrigerated trucks','manager',
@@ -1117,7 +1117,7 @@ local WORK_UPGRADE_LABELS={
     'mejora dinero','mejora velocidad','administrador','automatización',
     'mejorar ingresos','mejorar velocidad'
 }
-local WORK_BAD_LABELS={
+NOVA_CORE.WORK_BAD_LABELS={
     'floor','wall','roof','fence','decoration','cosmetic','staircase',
     'door','window','rebirth','investor','ascension','evolution',
     'piso','pared','techo','decoración','renacimiento','portal','robux'
@@ -1148,9 +1148,9 @@ local function padIdentity(hit)
 end
 local function isWorkUpgrade(hit)
     local name=padIdentity(hit)
-    if hasAny(name,WORK_BAD_LABELS) then return false end
-    if hasAny(name,WORK_UPGRADE_LABELS) then return true end
-    if hasAny(name,SOURCE_NAMES[NOVA_CORE.detectedWorld] or {})
+    if hasAny(name,NOVA_CORE.WORK_BAD_LABELS) then return false end
+    if hasAny(name,NOVA_CORE.WORK_UPGRADE_LABELS) then return true end
+    if hasAny(name,NOVA_CORE.SOURCE_NAMES[NOVA_CORE.detectedWorld] or {})
         and hasAny(name,{'upgrade','mejora','speed','cash','x2','x3','boost',
             'multiplier','manager','automat'}) then
         return true
@@ -1401,7 +1401,7 @@ end
 -- Ubicación inicial inferida sólo si hay evidencia cercana.
 -- Preferir fuentes iniciales conocidas y precios pequeños; nunca elegir
 -- ciegamente la posición actual en el final del tycoon.
-local function autoLocateStart()
+NOVA_CORE.autoLocateStart=function()
     local world=NOVA_CORE.detectedWorld
     if world~=1 and world~=2 then return false,'Mundo desconocido' end
     if NOVA_CORE.startAnchor[world] then return true,'Referencia existente' end
@@ -1742,7 +1742,7 @@ local function pricedBuildQueue()
     local wallet=walletMoney()
     if not wallet then return nil,{} end
     if not NOVA_CORE.startAnchor[NOVA_CORE.detectedWorld] then
-        local ok,reason=autoLocateStart()
+        local ok,reason=NOVA_CORE.autoLocateStart()
         if not ok then
             NOVA_CORE.buyPendingHint=reason
             NOVA_CORE.buyQueueStats={seen=#hits.buy,area=0,priced=0,affordable=0,station=0}
@@ -2288,7 +2288,7 @@ end
 local function refresh()
     scanWorld()
     if not NOVA_CORE.startAnchor[NOVA_CORE.detectedWorld] then
-        local ok,reason=autoLocateStart()
+        local ok,reason=NOVA_CORE.autoLocateStart()
         if not ok then NOVA_CORE.buyPendingHint=reason end
     end
     local saved=NOVA_CORE.startAnchor[NOVA_CORE.detectedWorld]
