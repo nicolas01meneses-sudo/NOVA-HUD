@@ -438,7 +438,7 @@ fitText(statTitle,12,15)
         dashboardStatLabels[page]={}
         for i,info in ipairs({
             {'HIELO',COLOR.accent}, {'MEJORAS',COLOR.success},
-            {'SALTOS',COLOR.purple}, {'INT. COMPRA',COLOR.warning}
+            {'TP COMPRA',COLOR.purple}, {'INT. COMPRA',COLOR.warning}
         }) do
             local tile=make('Frame',{Position=UDim2.new((i-1)*.247+0.012,0,0,37),
                 Size=UDim2.new(.233,-3,0,69),BackgroundColor3=COLOR.card,BorderSizePixel=0},statPanel)
@@ -1937,6 +1937,7 @@ local function pricedBuildQueue(mode)
     local now=os.clock()
     local groups,waiting,seen={}, {}, {}
     local zoneUnpriced,zoneSkipped={},{}
+    local zoneUnknownReason={}
     local summaryUnassigned=0
     local landmarks=NOVA_CORE.zoneLandmarks()
     local names=NOVA_CORE.zoneNames[world] or {'Inicio'}
@@ -1962,6 +1963,9 @@ local function pricedBuildQueue(mode)
             local price=hit.price
             if not price and zone then
                 zoneUnpriced[zone]=(zoneUnpriced[zone] or 0)+1
+                if not zoneUnknownReason[zone] then
+                    zoneUnknownReason[zone]=tostring(hit.priceReason or 'sin etiqueta de precio')
+                end
             end
             if price then
                 summary.priced=summary.priced+1
@@ -2013,7 +2017,8 @@ local function pricedBuildQueue(mode)
         return wallet,{}
     elseif (zoneUnpriced[current] or 0)>0 then
         NOVA_CORE.setZoneStatus('Zona '..current..': '..names[current]
-            ..' | '..zoneUnpriced[current]..' precio(s) sin reconocer')
+            ..' | '..zoneUnpriced[current]..' sin precio: '
+            ..tostring(zoneUnknownReason[current] or 'desconocido'))
         return wallet,{}
     else
         -- Avanzar hacia adelante, pero nunca retroceder automáticamente.
@@ -2303,9 +2308,12 @@ runAutoUpgrades=function()
         elseif state.autoStations and not (state.buy or state.buyMars) then
             showBatchStatus('No hay mejoras de puestos pagables reconocidas.')
         else
-            showBatchStatus('No hay botón elegible disponible (reintentos en pausa).')
+            showBatchStatus(string.format(
+                'Filtros: %d sin precio, %d sin zona, %d pausados, %d zona(s) en espera.',
+                summary.unpriced or 0,summary.unassigned or 0,
+                summary.skipped or 0,summary.waiting or 0))
         end
-        purchasePath('Revisa la detección de precio y la parcela.')
+        purchasePath('Revisa la zona actual y el motivo de las exclusiones.')
         return
     end
     local cheapest=ordered[1]
@@ -2753,7 +2761,7 @@ local function refresh()
     for page,vals in pairs(dashboardStatLabels) do
         vals[1].Text=tostring(i)
         vals[2].Text=tostring(u+#guiUpgrades)
-        vals[3].Text=tostring(NOVA_CORE.teleportCount)
+        vals[3].Text=tostring(NOVA_CORE.buildHops)
         vals[4].Text=tostring(NOVA_CORE.batchAttempts)
         dashboardScanMeta[page].Text=string.format('Hielo: %d • Mejoras: %d\nIntentos: %d • Verificadas: %d\nOmitidas: %d • Sin precio: %d',
             i,u+#guiUpgrades,NOVA_CORE.batchAttempts,NOVA_CORE.buyVerified,
@@ -3115,7 +3123,7 @@ task.spawn(function()
         for page,vals in pairs(dashboardStatLabels) do
             vals[1].Text=tostring(#hits.ice)
             vals[2].Text=tostring(#hits.buy+#guiUpgrades)
-            vals[3].Text=tostring(NOVA_CORE.teleportCount)
+            vals[3].Text=tostring(NOVA_CORE.buildHops)
             vals[4].Text=tostring(NOVA_CORE.batchAttempts)
         end
         task.wait(buildActive and .30 or (NOVA_CORE.detectedWorld==2 and state.ice and .18 or .7))
