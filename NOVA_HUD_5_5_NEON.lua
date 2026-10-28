@@ -109,6 +109,7 @@ NOVA_CORE.buyFailCounts={} -- previous failed attempts
 NOVA_CORE.buySkipped={} -- unconfirmed pads after repeat failures
 NOVA_CORE.stationUiStatus='Abre ADMINISTRAR en el juego'
 NOVA_CORE.remoteButton=nil
+NOVA_CORE.remoteConfirmButton=nil
 NOVA_CORE.remotePending=nil
 NOVA_CORE.remoteLastAction=-1e9
 NOVA_CORE.remoteAttempts=0
@@ -834,12 +835,15 @@ toggle(remoteBuyPanel,'Auto Compra Remota','remoteBuy')
 action(remoteBuyPanel,'VINCULAR BOTÓN AMARILLO',function()
     if NOVA_CORE.remoteBeginLink then NOVA_CORE.remoteBeginLink() end
 end)
+action(remoteBuyPanel,'VINCULAR BUY (SI APARECE UN MENÚ)',function()
+    if NOVA_CORE.remoteBeginLink then NOVA_CORE.remoteBeginLink('confirm') end
+end)
 action(remoteBuyPanel,'PROBAR 1 COMPRA REMOTA',function()
     if NOVA_CORE.remoteSendOne then NOVA_CORE.remoteSendOne(true) end
 end)
 NOVA_CORE.remoteStatusView=statusText(remoteBuyPanel,'Sin vincular | intentos: 0',true)
 statusText(remoteBuyPanel,
-    'Primero vincula la flecha amarilla del HUD. Al tocarla para vincular, el juego podría realizar una compra. El modo automático se detiene ante fallos repetidos.',true)
+    'Vincula la flecha amarilla. Si abre un menú con BUY, vincula también ese botón. Un toque manual para vincular puede comprar una mejora. Auto Remota se detiene ante fallos.',true)
 
 local visualL,visualR=columns(pVisual)
 local visualCard=section(visualL,'NEON APPEARANCE')
@@ -2209,7 +2213,7 @@ NOVA_CORE.remoteStop=function(reason)
     if reason then NOVA_CORE.remoteStatus(reason) end
 end
 
-NOVA_CORE.validateRemoteButton=function(button)
+NOVA_CORE.validateRemoteButton=function(button,isConfirmation)
     if not button or not button:IsA('GuiButton')
         or not button:IsDescendantOf(playerGui)
         or button:IsDescendantOf(gui) or not isVisibleGui(button) then
@@ -2229,9 +2233,12 @@ NOVA_CORE.validateRemoteButton=function(button)
     local p=button.AbsolutePosition
     local z=button.AbsoluteSize
     local cx,cy=p.X+z.X*.5,p.Y+z.Y*.5
-    if cy<view.Y*.45 or cy>view.Y*.98
+    local topLimit=isConfirmation and .20 or .45
+    if cy<view.Y*topLimit or cy>view.Y*.98
         or cx<view.X*.14 or cx>view.X*.86 then
-        return false,'Vincula el botón amarillo del HUD inferior, no el menú.'
+        return false,isConfirmation
+            and 'Vincula el BUY de Compra Remota, no la tienda.'
+            or 'Vincula la flecha amarilla del HUD inferior.'
     end
     local path=''
     local cur=button
@@ -2248,16 +2255,21 @@ NOVA_CORE.validateRemoteButton=function(button)
     return true,'Botón visible y dentro del HUD de juego.'
 end
 
-NOVA_CORE.remoteBeginLink=function()
+NOVA_CORE.remoteBeginLink=function(kind)
     if NOVA_CORE.remoteLinkActive then return end
-    NOVA_CORE.remoteStop('Vinculación abierta: toca SOLO la flecha amarilla.')
+    local confirmation=(kind=='confirm')
+    NOVA_CORE.remoteStop(confirmation
+        and 'Vinculación abierta: toca el BUY verde del menú remoto.'
+        or 'Vinculación abierta: toca SOLO la flecha amarilla.')
     NOVA_CORE.remoteLinkActive=true
     NOVA_CORE.remoteLinkSequence=NOVA_CORE.remoteLinkSequence+1
     local linkSequence=NOVA_CORE.remoteLinkSequence
     window.Visible=false
     restore.Visible=false
     local banner=roundedButton(gui,
-        'TOCA FLECHA AMARILLA • TOCA AQUÍ PARA CANCELAR',
+        confirmation
+            and 'TOCA BUY VERDE REMOTO • TOCA AQUÍ PARA CANCELAR'
+            or 'TOCA FLECHA AMARILLA • TOCA AQUÍ PARA CANCELAR',
         COLOR.accent,UDim2.fromOffset(460,50))
     banner.Position=UDim2.new(.5,-230,0,82)
     banner.TextColor3=COLOR.bg
@@ -2306,7 +2318,7 @@ NOVA_CORE.remoteBeginLink=function()
                 for _=1,5 do
                     if not cur or cur==playerGui then break end
                     if cur:IsA('GuiButton') and not cur:IsDescendantOf(gui) then
-                        local valid,why=NOVA_CORE.validateRemoteButton(cur)
+                        local valid,why=NOVA_CORE.validateRemoteButton(cur,confirmation)
                         if valid then found=cur;break end
                         reason=why or reason
                     end
@@ -2315,10 +2327,15 @@ NOVA_CORE.remoteBeginLink=function()
                 if found then break end
             end
             if found then
-                NOVA_CORE.remoteButton=found
+                if confirmation then
+                    NOVA_CORE.remoteConfirmButton=found
+                else
+                    NOVA_CORE.remoteButton=found
+                end
                 NOVA_CORE.remoteFailures=0
                 NOVA_CORE.remoteUnconfirmed=0
-                finish('Vinculado: '..found.Name..'. Ya puedes PROBAR 1 COMPRA.')
+                finish((confirmation and 'BUY de confirmación vinculado: ' or 'Flecha vinculada: ')
+                    ..found.Name..'. Ya puedes PROBAR 1 COMPRA.')
             else
                 finish('No se vinculó: '..reason..' Repite con la flecha amarilla.')
             end
@@ -2384,7 +2401,7 @@ NOVA_CORE.remoteSendOne=function(testOnly)
     NOVA_CORE.remoteAttempts=NOVA_CORE.remoteAttempts+1
     NOVA_CORE.remotePending={
         obj=button,at=os.clock(),beforeCount=beforeCount,
-        beforeMoney=beforeMoney,testOnly=testOnly
+        beforeMoney=beforeMoney,testOnly=testOnly,phase='opening'
     }
     NOVA_CORE.remoteStatus('Toque oficial #'..NOVA_CORE.remoteAttempts
         ..' enviado; verificando respuesta del juego...')
@@ -2394,6 +2411,29 @@ end
 NOVA_CORE.runRemoteBuy=function()
     local pending=NOVA_CORE.remotePending
     if pending then
+        if pending.phase=='opening' then
+            if os.clock()-pending.at<.65 then return end
+            local confirm=NOVA_CORE.remoteConfirmButton
+            if confirm then
+                local valid,why=NOVA_CORE.validateRemoteButton(confirm,true)
+                if not valid then
+                    NOVA_CORE.remotePending=nil
+                    NOVA_CORE.remoteStop('BUY de confirmación ya no visible: '..tostring(why))
+                    return
+                end
+                local ok,reason=attemptInteraction({obj=confirm,part=nil},
+                    NOVA_CORE.remoteMinInterval)
+                if not ok then
+                    NOVA_CORE.remotePending=nil
+                    NOVA_CORE.remoteStop('No se pudo confirmar BUY: '..tostring(reason))
+                    return
+                end
+                NOVA_CORE.remoteStatus('Flecha + BUY enviados; verificando saldo y contador...')
+            end
+            pending.phase='verifying'
+            pending.at=os.clock()
+            return
+        end
         if os.clock()-pending.at<NOVA_CORE.remoteVerificationSeconds then return end
         NOVA_CORE.remotePending=nil
         local afterCount=observedBoughtCount()
