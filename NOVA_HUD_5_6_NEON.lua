@@ -2206,7 +2206,7 @@ local function findManageUpgrades(wallet)
     return results,foundManage
 end
 
--- NOVA 5.5: Remote Buy oficial del juego, separado de los TP.
+-- NOVA 5.6: Remote Buy oficial del juego, separado de los TP.
 -- La vinculación es explícita cuando la UI no identifica el botón por su nombre.
 NOVA_CORE.remoteStatus=function(message)
     NOVA_CORE.remoteMessage=message
@@ -2333,18 +2333,17 @@ NOVA_CORE.remoteBeginLink=function(kind)
             return playerGui:GetGuiObjectsAtPosition(point.X,point.Y)
         end)
         if ok and type(results)=='table' then objects=results end
-        -- Respaldo para interfaces que no aparecen en GetGuiObjectsAtPosition.
-        if #objects==0 then
-            for _,obj in ipairs(playerGui:GetDescendants()) do
-                if obj:IsA('GuiButton') and not obj:IsDescendantOf(gui)
-                    and isVisibleGui(obj) and within(obj,point) then
-                    table.insert(objects,obj)
-                end
+        -- Respaldo incluso si la API devuelve otros elementos de pantalla
+        -- pero omite el botón amarillo que queremos vincular.
+        local seen={}
+        for _,obj in ipairs(objects) do seen[obj]=true end
+        for _,obj in ipairs(playerGui:GetDescendants()) do
+            if obj:IsA('GuiButton') and not obj:IsDescendantOf(gui)
+                and isVisibleGui(obj) and within(obj,point)
+                and not seen[obj] then
+                seen[obj]=true
+                table.insert(objects,obj)
             end
-            table.sort(objects,function(a,b)
-                return a.AbsoluteSize.X*a.AbsoluteSize.Y
-                    < b.AbsoluteSize.X*b.AbsoluteSize.Y
-            end)
         end
         for _,obj in ipairs(objects) do
             local cur=obj
@@ -2374,6 +2373,7 @@ NOVA_CORE.remoteBeginLink=function(kind)
                 else
                     NOVA_CORE.remoteButton=found
                     NOVA_CORE.remoteCoordinate=nil
+                    NOVA_CORE.remoteConfirmButton=nil -- nuevo vínculo, no usar BUY anterior
                 end
                 NOVA_CORE.remoteReady=false
                 NOVA_CORE.remoteFailures=0
@@ -2405,6 +2405,7 @@ NOVA_CORE.remoteBeginLink=function(kind)
                 and (Vector2.new(candidate.x,candidate.y)-Vector2.new(pos.X,pos.Y)).Magnitude<=tolerance then
                 NOVA_CORE.remoteCoordinate={x=x,y=y,viewX=view.X,viewY=view.Y}
                 NOVA_CORE.remoteButton=nil
+                NOVA_CORE.remoteConfirmButton=nil -- revisar menú otra vez
                 NOVA_CORE.remoteReady=false
                 NOVA_CORE.remoteFailures=0
                 finish('Flecha asociada por DOS toques a su posición. PRUEBA 1 COMPRA primero; sin garantía.')
@@ -2554,12 +2555,16 @@ NOVA_CORE.runRemoteBuy=function()
             NOVA_CORE.remoteConfirmed=NOVA_CORE.remoteConfirmed
                 +(afterCount-pending.beforeCount)
             NOVA_CORE.remoteFailures=0
-            NOVA_CORE.remoteStatus('Compra REMOTA confirmada por contador.')
+            NOVA_CORE.remoteStatus(pending.testOnly
+                and 'PRUEBA OK: compra confirmada por contador. Ya puedes encender AUTO.'
+                or 'Compra REMOTA confirmada por contador.')
         elseif probablyBought then
             if pending.testOnly then NOVA_CORE.remoteReady=true end
             NOVA_CORE.remoteProbable=NOVA_CORE.remoteProbable+1
             NOVA_CORE.remoteFailures=0
-            NOVA_CORE.remoteStatus('Saldo bajó: compra probable (sin contador).')
+            NOVA_CORE.remoteStatus(pending.testOnly
+                and 'PRUEBA PROBABLE: saldo bajó. Revisa que realmente fue una compra antes de AUTO.'
+                or 'Saldo bajó: compra probable (sin contador).')
         else
             NOVA_CORE.remoteUnconfirmed=NOVA_CORE.remoteUnconfirmed+1
             NOVA_CORE.remoteFailures=NOVA_CORE.remoteFailures+1
