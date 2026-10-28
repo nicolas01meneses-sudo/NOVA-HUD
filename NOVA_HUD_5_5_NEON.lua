@@ -121,6 +121,7 @@ NOVA_CORE.remoteVerificationSeconds=2.8
 NOVA_CORE.remoteStatusView=nil
 NOVA_CORE.remoteLinkActive=false
 NOVA_CORE.remoteLinkConnection=nil
+NOVA_CORE.remoteLinkSequence=0
 NOVA_CORE.remoteMessage='Sin vínculo. Toca VINCULAR BOTÓN AMARILLO.'
 NOVA_CORE.buyAreaOrigin=nil -- reference near player's tycoon
 NOVA_CORE.buyAreaWorld=nil
@@ -2251,6 +2252,8 @@ NOVA_CORE.remoteBeginLink=function()
     if NOVA_CORE.remoteLinkActive then return end
     NOVA_CORE.remoteStop('Vinculación abierta: toca SOLO la flecha amarilla.')
     NOVA_CORE.remoteLinkActive=true
+    NOVA_CORE.remoteLinkSequence=NOVA_CORE.remoteLinkSequence+1
+    local linkSequence=NOVA_CORE.remoteLinkSequence
     window.Visible=false
     restore.Visible=false
     local banner=roundedButton(gui,
@@ -2261,7 +2264,8 @@ NOVA_CORE.remoteBeginLink=function()
     banner.TextSize=13
     banner.TextWrapped=true
     local function finish(message)
-        if not NOVA_CORE.remoteLinkActive then return end
+        if not NOVA_CORE.remoteLinkActive
+            or linkSequence~=NOVA_CORE.remoteLinkSequence then return end
         NOVA_CORE.remoteLinkActive=false
         if NOVA_CORE.remoteLinkConnection then
             NOVA_CORE.remoteLinkConnection:Disconnect()
@@ -2279,7 +2283,8 @@ NOVA_CORE.remoteBeginLink=function()
         finish('Vinculación cancelada. No se ha cambiado el botón.')
     end)
     task.delay(.28,function()
-        if not NOVA_CORE.remoteLinkActive or not gui.Parent then return end
+        if not NOVA_CORE.remoteLinkActive or not gui.Parent
+            or linkSequence~=NOVA_CORE.remoteLinkSequence then return end
         NOVA_CORE.remoteLinkConnection=UserInputService.InputBegan:Connect(function(input)
             if input.UserInputType~=Enum.UserInputType.Touch
                 and input.UserInputType~=Enum.UserInputType.MouseButton1 then return end
@@ -2320,7 +2325,8 @@ NOVA_CORE.remoteBeginLink=function()
         end)
     end)
     task.delay(16,function()
-        if NOVA_CORE.remoteLinkActive then
+        if NOVA_CORE.remoteLinkActive
+            and linkSequence==NOVA_CORE.remoteLinkSequence then
             finish('Tiempo agotado. Toca VINCULAR y el botón amarillo otra vez.')
         end
     end)
@@ -3389,8 +3395,15 @@ task.spawn(function()
                 end
             end
         end
-        -- One scheduler for both separately controlled upgrade modes.
-        if buildActive then runAutoUpgrades() end
+        -- Compra Remota utiliza su propio scheduler, sin teleport ni pads.
+        if NOVA_CORE.runRemoteBuy
+            and (state.remoteBuy or NOVA_CORE.remotePending) then
+            NOVA_CORE.runRemoteBuy()
+        end
+        -- No mezclar la compra remota con el motor de plataformas.
+        if buildActive and not NOVA_CORE.remotePending and not state.remoteBuy then
+            runAutoUpgrades()
+        end
         footer.Text=string.format('Hielo: %d  |  Mejoras: %d',
             #hits.ice,#hits.buy+#guiUpgrades)
         if remoteBuyCaption then remoteBuyCaption.Text='Compra: acercar → interactuar → verificar' end
@@ -3411,6 +3424,7 @@ task.spawn(function()
             vals[3].Text=tostring(NOVA_CORE.buildHops)
             vals[4].Text=tostring(NOVA_CORE.batchAttempts)
         end
-        task.wait(buildActive and .30 or (NOVA_CORE.detectedWorld==2 and state.ice and .18 or .7))
+        task.wait((buildActive or state.remoteBuy or NOVA_CORE.remotePending) and .30
+            or (NOVA_CORE.detectedWorld==2 and state.ice and .18 or .7))
     end
 end)
