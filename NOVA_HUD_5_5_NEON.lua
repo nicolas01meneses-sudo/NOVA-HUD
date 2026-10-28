@@ -2190,6 +2190,246 @@ local function findManageUpgrades(wallet)
     return results,foundManage
 end
 
+-- NOVA 5.5: Remote Buy oficial del juego, separado de los TP.
+-- La vinculación es explícita cuando la UI no identifica el botón por su nombre.
+NOVA_CORE.remoteStatus=function(message)
+    NOVA_CORE.remoteMessage=message
+    local label=NOVA_CORE.remoteStatusView
+    if label and label.Parent then
+        label.Text=tostring(message)..'\nIntentos: '..NOVA_CORE.remoteAttempts
+            ..' | confirmadas: '..NOVA_CORE.remoteConfirmed
+            ..' | probables: '..NOVA_CORE.remoteProbable
+    end
+end
+
+NOVA_CORE.remoteStop=function(reason)
+    state.remoteBuy=false
+    for _,draw in ipairs(NOVA_CORE.switches.remoteBuy or {}) do draw() end
+    if reason then NOVA_CORE.remoteStatus(reason) end
+end
+
+NOVA_CORE.validateRemoteButton=function(button)
+    if not button or not button:IsA('GuiButton')
+        or not button:IsDescendantOf(playerGui)
+        or button:IsDescendantOf(gui) or not isVisibleGui(button) then
+        return false,'El botón oficial ya no está visible. Vincúlalo otra vez.'
+    end
+    if button.AbsoluteSize.X<25 or button.AbsoluteSize.Y<25 then
+        return false,'El control seleccionado es demasiado pequeño.'
+    end
+    if button:FindFirstAncestorOfClass('ScrollingFrame') then
+        return false,'No se vinculan controles de listas/tiendas.'
+    end
+    local cam=Workspace.CurrentCamera
+    local view=cam and cam.ViewportSize
+    if not view or view.X<=0 or view.Y<=0 then
+        return false,'Pantalla no disponible.'
+    end
+    local p=button.AbsolutePosition
+    local z=button.AbsoluteSize
+    local cx,cy=p.X+z.X*.5,p.Y+z.Y*.5
+    if cy<view.Y*.45 or cy>view.Y*.98
+        or cx<view.X*.14 or cx>view.X*.86 then
+        return false,'Vincula el botón amarillo del HUD inferior, no el menú.'
+    end
+    local path=''
+    local cur=button
+    for _=1,8 do
+        if not cur or cur==playerGui then break end
+        path=path..' '..cur.Name:lower()
+        cur=cur.Parent
+    end
+    if hasAny(path,{'robux','gamepass','shop','store','powers',
+        'marketplace','catalog','donat','premium','inventory',
+        'jump','sprint','fly','emote','chat','joystick'}) then
+        return false,'Control descartado: navegación, tienda o compra premium.'
+    end
+    return true,'Botón visible y dentro del HUD de juego.'
+end
+
+NOVA_CORE.remoteBeginLink=function()
+    if NOVA_CORE.remoteLinkActive then return end
+    NOVA_CORE.remoteStop('Vinculación abierta: toca SOLO la flecha amarilla.')
+    NOVA_CORE.remoteLinkActive=true
+    window.Visible=false
+    restore.Visible=false
+    local banner=roundedButton(gui,
+        'TOCA FLECHA AMARILLA • TOCA AQUÍ PARA CANCELAR',
+        COLOR.accent,UDim2.fromOffset(460,50))
+    banner.Position=UDim2.new(.5,-230,0,82)
+    banner.TextColor3=COLOR.bg
+    banner.TextSize=13
+    banner.TextWrapped=true
+    local function finish(message)
+        if not NOVA_CORE.remoteLinkActive then return end
+        NOVA_CORE.remoteLinkActive=false
+        if NOVA_CORE.remoteLinkConnection then
+            NOVA_CORE.remoteLinkConnection:Disconnect()
+            NOVA_CORE.remoteLinkConnection=nil
+        end
+        if banner and banner.Parent then banner:Destroy() end
+        if gui.Parent then
+            window.Visible=true
+            restore.Visible=true
+            showPage('Build')
+        end
+        NOVA_CORE.remoteStatus(message)
+    end
+    banner.MouseButton1Click:Connect(function()
+        finish('Vinculación cancelada. No se ha cambiado el botón.')
+    end)
+    task.delay(.28,function()
+        if not NOVA_CORE.remoteLinkActive or not gui.Parent then return end
+        NOVA_CORE.remoteLinkConnection=UserInputService.InputBegan:Connect(function(input)
+            if input.UserInputType~=Enum.UserInputType.Touch
+                and input.UserInputType~=Enum.UserInputType.MouseButton1 then return end
+            local pos=input.Position
+            local bp,bz=banner.AbsolutePosition,banner.AbsoluteSize
+            if pos.X>=bp.X and pos.X<=bp.X+bz.X
+                and pos.Y>=bp.Y and pos.Y<=bp.Y+bz.Y then return end
+            local ok,objects=pcall(function()
+                return playerGui:GetGuiObjectsAtPosition(pos.X,pos.Y)
+            end)
+            if not ok or type(objects)~='table' then
+                finish('No se pudo identificar el botón tocado: '..tostring(objects))
+                return
+            end
+            local found=nil
+            local reason='No se detectó un GuiButton de juego bajo el toque.'
+            for _,obj in ipairs(objects) do
+                local cur=obj
+                for _=1,5 do
+                    if not cur or cur==playerGui then break end
+                    if cur:IsA('GuiButton') and not cur:IsDescendantOf(gui) then
+                        local valid,why=NOVA_CORE.validateRemoteButton(cur)
+                        if valid then found=cur;break end
+                        reason=why or reason
+                    end
+                    cur=cur.Parent
+                end
+                if found then break end
+            end
+            if found then
+                NOVA_CORE.remoteButton=found
+                NOVA_CORE.remoteFailures=0
+                NOVA_CORE.remoteUnconfirmed=0
+                finish('Vinculado: '..found.Name..'. Ya puedes PROBAR 1 COMPRA.')
+            else
+                finish('No se vinculó: '..reason..' Repite con la flecha amarilla.')
+            end
+        end)
+    end)
+    task.delay(16,function()
+        if NOVA_CORE.remoteLinkActive then
+            finish('Tiempo agotado. Toca VINCULAR y el botón amarillo otra vez.')
+        end
+    end)
+end
+
+NOVA_CORE.remoteSendOne=function(testOnly)
+    if NOVA_CORE.remotePending then
+        NOVA_CORE.remoteStatus('Ya existe una compra remota pendiente de verificar.')
+        return false
+    end
+    if os.clock()-NOVA_CORE.remoteLastAction<NOVA_CORE.remoteMinInterval then
+        NOVA_CORE.remoteStatus('Esperando intervalo entre compras remotas.')
+        return false
+    end
+    local button=NOVA_CORE.remoteButton
+    if not button then
+        local detected=refreshOfficialRemoteBuy()
+        button=detected and detected.obj
+    end
+    if not button then
+        NOVA_CORE.remoteStop('No encuentro Remote Buy. VINCULA el botón amarillo del juego.')
+        return false
+    end
+    local valid,why=NOVA_CORE.validateRemoteButton(button)
+    if not valid then
+        NOVA_CORE.remoteButton=nil
+        NOVA_CORE.remoteStop('Vínculo inválido: '..tostring(why))
+        return false
+    end
+    -- Las compras del menú de Powers (Robux/Inversores) no forman parte
+    -- de esta función: solo se pulsa un botón HUD ya desbloqueado.
+    if testOnly then
+        state.buy=false
+        state.buyMars=false
+        state.autoStations=false
+        state.remoteBuy=false
+        NOVA_CORE.buyPending=nil
+        for _,name in ipairs({'buy','buyMars','autoStations','remoteBuy'}) do
+            for _,draw in ipairs(NOVA_CORE.switches[name] or {}) do draw() end
+        end
+    end
+    local beforeCount=observedBoughtCount()
+    local beforeMoney=walletMoney()
+    if not beforeMoney then
+        NOVA_CORE.remoteStop('Saldo no legible; pausada para evitar clics sin control.')
+        return false
+    end
+    local ok,reason=attemptInteraction({obj=button,part=nil},NOVA_CORE.remoteMinInterval)
+    if not ok then
+        NOVA_CORE.remoteFailures=NOVA_CORE.remoteFailures+1
+        NOVA_CORE.remoteStop('No se pudo pulsar el botón oficial: '..tostring(reason))
+        return false
+    end
+    NOVA_CORE.remoteLastAction=os.clock()
+    NOVA_CORE.remoteAttempts=NOVA_CORE.remoteAttempts+1
+    NOVA_CORE.remotePending={
+        obj=button,at=os.clock(),beforeCount=beforeCount,
+        beforeMoney=beforeMoney,testOnly=testOnly
+    }
+    NOVA_CORE.remoteStatus('Toque oficial #'..NOVA_CORE.remoteAttempts
+        ..' enviado; verificando respuesta del juego...')
+    return true
+end
+
+NOVA_CORE.runRemoteBuy=function()
+    local pending=NOVA_CORE.remotePending
+    if pending then
+        if os.clock()-pending.at<NOVA_CORE.remoteVerificationSeconds then return end
+        NOVA_CORE.remotePending=nil
+        local afterCount=observedBoughtCount()
+        local afterMoney=walletMoney()
+        local verified=pending.beforeCount~=nil and afterCount~=nil
+            and afterCount>pending.beforeCount
+        local probablyBought=pending.beforeMoney and afterMoney
+            and cheaper(afterMoney,pending.beforeMoney)
+        if verified then
+            NOVA_CORE.remoteConfirmed=NOVA_CORE.remoteConfirmed
+                +(afterCount-pending.beforeCount)
+            NOVA_CORE.remoteFailures=0
+            NOVA_CORE.remoteStatus('Compra REMOTA confirmada por contador.')
+        elseif probablyBought then
+            NOVA_CORE.remoteProbable=NOVA_CORE.remoteProbable+1
+            NOVA_CORE.remoteFailures=0
+            NOVA_CORE.remoteStatus('Saldo bajó: compra probable (sin contador).')
+        else
+            NOVA_CORE.remoteUnconfirmed=NOVA_CORE.remoteUnconfirmed+1
+            NOVA_CORE.remoteFailures=NOVA_CORE.remoteFailures+1
+            if NOVA_CORE.remoteFailures>=2 then
+                NOVA_CORE.remoteStop('2 clics sin confirmación. Detenido; comprueba poder y saldo.')
+            else
+                NOVA_CORE.remoteStatus('No se verificó compra; un reintento máximo.')
+            end
+        end
+        return
+    end
+    if not state.remoteBuy or NOVA_CORE.remoteLinkActive then return end
+    if os.clock()-NOVA_CORE.remoteLastAction<NOVA_CORE.remoteMinInterval then return end
+    NOVA_CORE.remoteSendOne(false)
+end
+
+gui.Destroying:Connect(function()
+    NOVA_CORE.remoteLinkActive=false
+    if NOVA_CORE.remoteLinkConnection then
+        NOVA_CORE.remoteLinkConnection:Disconnect()
+        NOVA_CORE.remoteLinkConnection=nil
+    end
+    NOVA_CORE.remotePending=nil
+end)
+
 -- Motor de compras sin rutas ni caminata: un TP por objetivo.
 runAutoUpgrades=function()
     local now=os.clock()
