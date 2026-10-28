@@ -843,7 +843,7 @@ action(remoteBuyPanel,'PROBAR 1 COMPRA REMOTA',function()
 end)
 NOVA_CORE.remoteStatusView=statusText(remoteBuyPanel,'Sin vincular | intentos: 0',true)
 statusText(remoteBuyPanel,
-    'Vincula la flecha amarilla. Si abre un menú con BUY, vincula también ese botón. Un toque manual para vincular puede comprar una mejora. Auto Remota se detiene ante fallos.',true)
+    'Vincula la flecha amarilla. Si abre BUY verde, vincúlalo también. Al probar, NOVA minimiza su ventana para no tapar el juego. Un toque de vinculación puede comprar.',true)
 
 local visualL,visualR=columns(pVisual)
 local visualCard=section(visualL,'NEON APPEARANCE')
@@ -2391,6 +2391,11 @@ NOVA_CORE.remoteSendOne=function(testOnly)
         NOVA_CORE.remoteStop('Saldo no legible; pausada para evitar clics sin control.')
         return false
     end
+    -- No dejar el panel NOVA encima del botón de Compra Remota.
+    if window.Visible then
+        window.Visible=false
+        restore.Visible=true
+    end
     local ok,reason=attemptInteraction({obj=button,part=nil},NOVA_CORE.remoteMinInterval)
     if not ok then
         NOVA_CORE.remoteFailures=NOVA_CORE.remoteFailures+1
@@ -2420,6 +2425,10 @@ NOVA_CORE.runRemoteBuy=function()
                     NOVA_CORE.remotePending=nil
                     NOVA_CORE.remoteStop('BUY de confirmación ya no visible: '..tostring(why))
                     return
+                end
+                if window.Visible then
+                    window.Visible=false
+                    restore.Visible=true
                 end
                 local ok,reason=attemptInteraction({obj=confirm,part=nil},
                     NOVA_CORE.remoteMinInterval)
