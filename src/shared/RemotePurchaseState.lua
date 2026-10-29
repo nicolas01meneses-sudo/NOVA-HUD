@@ -7,6 +7,7 @@ export type Assessment = {
 	status: "confirmed" | "observed" | "rejected" | "inconclusive",
 	reason: string,
 	evidence: { string },
+	terminal: boolean?,
 }
 
 export type State = {
@@ -17,6 +18,7 @@ export type State = {
 	autoUnlocked: boolean,
 	autoEnabled: boolean,
 	pending: boolean,
+	terminal: boolean,
 	lastAssessment: Assessment?,
 }
 
@@ -31,6 +33,7 @@ function RemotePurchaseState.new(): Machine
 		autoUnlocked = false,
 		autoEnabled = false,
 		pending = false,
+		terminal = false,
 		lastAssessment = nil,
 	}, RemotePurchaseState)
 end
@@ -41,6 +44,7 @@ function RemotePurchaseState.link(self: Machine, activationCapable: boolean)
 	self.autoUnlocked = false
 	self.autoEnabled = false
 	self.pending = false
+	self.terminal = false
 	self.lastAssessment = nil
 	self.status = "linked"
 	self.message = if activationCapable
@@ -54,6 +58,7 @@ function RemotePurchaseState.unlink(self: Machine, reason: string?)
 	self.autoUnlocked = false
 	self.autoEnabled = false
 	self.pending = false
+	self.terminal = false
 	self.lastAssessment = nil
 	self.status = "unlinked"
 	self.message = reason or "Control link was cleared"
@@ -62,6 +67,9 @@ end
 function RemotePurchaseState.beginTest(self: Machine): (boolean, string)
 	if not self.linked then
 		return false, "link a control first"
+	end
+	if self.terminal then
+		return false, "the authorized purchase sequence is already complete"
 	end
 	if self.pending then
 		return false, "a verification is already pending"
@@ -78,6 +86,14 @@ function RemotePurchaseState.finishTest(self: Machine, assessment: Assessment)
 	self.pending = false
 	self.lastAssessment = assessment
 	if assessment.status == "confirmed" then
+		if assessment.terminal then
+			self.terminal = true
+			self.autoUnlocked = false
+			self.autoEnabled = false
+			self.status = "complete"
+			self.message = "Authorized purchase sequence is complete"
+			return
+		end
 		if self.activationCapable then
 			self.autoUnlocked = true
 			if self.autoEnabled then
@@ -114,6 +130,9 @@ function RemotePurchaseState.setAuto(self: Machine, enabled: boolean): (boolean,
 	if not self.activationCapable then
 		return false, "the current adapter is observation-only"
 	end
+	if self.terminal then
+		return false, "the authorized purchase sequence is already complete"
+	end
 	if not self.autoUnlocked then
 		return false, "one authoritative test must be confirmed first"
 	end
@@ -134,6 +153,7 @@ function RemotePurchaseState.snapshot(self: Machine): State
 		autoUnlocked = self.autoUnlocked,
 		autoEnabled = self.autoEnabled,
 		pending = self.pending,
+		terminal = self.terminal,
 		lastAssessment = self.lastAssessment,
 	}
 end

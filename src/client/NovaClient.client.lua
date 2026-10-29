@@ -7,12 +7,13 @@ local UserInputService = game:GetService("UserInputService")
 local GuiService = game:GetService("GuiService")
 
 local Config = require(ReplicatedStorage.NOVA.Config)
-local Integration = require(ReplicatedStorage.NOVA.Integration)
+local IntegrationResolver = require(ReplicatedStorage.NOVA.Integration)
 local FeatureRegistry = require(ReplicatedStorage.NOVA.FeatureRegistry)
 
 local ConnectionBag = require(script.Parent.ConnectionBag)
 local ControlScanner = require(script.Parent.ControlScanner)
 local HitTest = require(script.Parent.HitTest)
+local TapCapture = require(script.Parent.TapCapture)
 local UiSnapshot = require(script.Parent.UiSnapshot)
 local RemotePurchaseController = require(script.Parent.RemotePurchaseController)
 local InfiniteJumpController = require(script.Parent.InfiniteJumpController)
@@ -24,6 +25,8 @@ if not player then
 	return
 end
 local playerGui = player:WaitForChild("PlayerGui") :: PlayerGui
+local providerModule = ReplicatedStorage:FindFirstChild("NOVA_AuthorizedIntegration")
+local Integration, integrationStatus = IntegrationResolver.resolve(providerModule)
 local old = playerGui:FindFirstChild("NOVA_HUD_6_0")
 if old then
 	old:Destroy()
@@ -54,12 +57,13 @@ local screen = make("ScreenGui", {
 	ResetOnSpawn = false,
 	DisplayOrder = 105,
 	IgnoreGuiInset = false,
+	ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
 }, playerGui) :: ScreenGui
 screen:SetAttribute("NOVA_Internal", true)
 
 local window = make("Frame", {
 	Name = "Window",
-	Size = UDim2.fromOffset(460, 430),
+	Size = UDim2.new(1, -24, 1, -36),
 	Position = UDim2.fromScale(0.5, 0.52),
 	AnchorPoint = Vector2.new(0.5, 0.5),
 	BackgroundColor3 = COLORS.background,
@@ -67,6 +71,10 @@ local window = make("Frame", {
 	Active = true,
 }, screen) :: Frame
 window:SetAttribute("NOVA_Internal", true)
+make("UISizeConstraint", {
+	MinSize = Vector2.new(280, 260),
+	MaxSize = Vector2.new(460, 430),
+}, window)
 make("UICorner", { CornerRadius = UDim.new(0, 14) }, window)
 make("UIStroke", { Color = COLORS.accent, Thickness = 1.5, Transparency = 0.2 }, window)
 
@@ -82,8 +90,8 @@ local title = make("TextLabel", {
 }, window) :: TextLabel
 
 local close = make("TextButton", {
-	Size = UDim2.fromOffset(38, 34),
-	Position = UDim2.new(1, -48, 0, 10),
+	Size = UDim2.fromOffset(44, 44),
+	Position = UDim2.new(1, -54, 0, 8),
 	BackgroundColor3 = COLORS.panel,
 	BorderSizePixel = 0,
 	Text = "×",
@@ -106,11 +114,16 @@ local subtitle = make("TextLabel", {
 	TextXAlignment = Enum.TextXAlignment.Left,
 }, window) :: TextLabel
 
-local content = make("Frame", {
+local content = make("ScrollingFrame", {
 	Size = UDim2.new(1, -36, 1, -100),
 	Position = UDim2.fromOffset(18, 90),
 	BackgroundTransparency = 1,
-}, window) :: Frame
+	BorderSizePixel = 0,
+	CanvasSize = UDim2.new(),
+	AutomaticCanvasSize = Enum.AutomaticSize.Y,
+	ScrollBarThickness = 3,
+	ScrollBarImageColor3 = COLORS.accent,
+}, window) :: ScrollingFrame
 make("UIListLayout", {
 	Padding = UDim.new(0, 7),
 	SortOrder = Enum.SortOrder.LayoutOrder,
@@ -118,7 +131,7 @@ make("UIListLayout", {
 
 local function button(text: string): TextButton
 	local object = make("TextButton", {
-		Size = UDim2.new(1, 0, 0, 38),
+		Size = UDim2.new(1, -4, 0, 44),
 		BackgroundColor3 = COLORS.panel,
 		BorderSizePixel = 0,
 		Text = text,
@@ -197,7 +210,8 @@ controller = RemotePurchaseController.new(scanner, snapshotter, adapter, functio
 		state.message,
 		state.linked and "sí" or "no",
 		state.activationCapable and "autorizado" or "observación"
-	), if state.status == "auto" or state.status == "ready" then COLORS.green else COLORS.warning)
+	), if state.status == "auto" or state.status == "ready" or state.status == "complete"
+		then COLORS.green else COLORS.warning)
 end)
 
 local jump = InfiniteJumpController.new(player, UserInputService, Config.AllowInfiniteJump)
@@ -215,7 +229,7 @@ connections:add(scanButton.Activated:Connect(function()
 	), COLORS.accent)
 end))
 
-local linkConnection: RBXScriptConnection? = nil
+local linkConnection: TapCapture.Handle? = nil
 local linkSequence = 0
 local function stopLink(message: string)
 	linkSequence += 1
@@ -236,8 +250,9 @@ connections:add(linkButton.Activated:Connect(function()
 	window.Visible = false
 	show("Vinculación activa")
 	local banner = make("TextButton", {
-		Size = UDim2.fromOffset(500, 52),
-		Position = UDim2.new(0.5, -250, 0, 72),
+		Size = UDim2.new(1, -24, 0, 56),
+		Position = UDim2.new(0.5, 0, 0, 72),
+		AnchorPoint = Vector2.new(0.5, 0),
 		BackgroundColor3 = COLORS.accent,
 		BorderSizePixel = 0,
 		Text = "ABRE COMPRA REMOTA Y TOCA EL BUY VERDE  •  CANCELAR",
@@ -247,6 +262,10 @@ connections:add(linkButton.Activated:Connect(function()
 		TextWrapped = true,
 	}, screen) :: TextButton
 	banner:SetAttribute("NOVA_Internal", true)
+	make("UISizeConstraint", {
+		MinSize = Vector2.new(260, 56),
+		MaxSize = Vector2.new(500, 56),
+	}, banner)
 	make("UICorner", { CornerRadius = UDim.new(0, 10) }, banner)
 	local function finish(message: string)
 		if sequence ~= linkSequence then
@@ -264,15 +283,11 @@ connections:add(linkButton.Activated:Connect(function()
 		if sequence ~= linkSequence or not screen.Parent then
 			return
 		end
-		linkConnection = UserInputService.InputEnded:Connect(function(input)
-			if input.UserInputType ~= Enum.UserInputType.Touch
-				and input.UserInputType ~= Enum.UserInputType.MouseButton1 then
-				return
-			end
+		linkConnection = TapCapture.connect(UserInputService, function(position, inputMode)
 			local object, coordinateMode = HitTest.pick(
 				playerGui,
 				GuiService,
-				Vector2.new(input.Position.X, input.Position.Y),
+				position,
 				function(candidate)
 					return scanner:describe(candidate) ~= nil
 				end
@@ -285,7 +300,8 @@ connections:add(linkButton.Activated:Connect(function()
 				return
 			end
 			local ok, reason = controller:link(descriptor)
-			finish((ok and "Vinculado" or "No vinculado") .. " (" .. coordinateMode .. "): " .. reason)
+			finish((ok and "Vinculado" or "No vinculado") .. " (" .. inputMode
+				.. "/" .. coordinateMode .. "): " .. reason)
 		end)
 	end)
 	task.delay(30, function()
@@ -347,7 +363,7 @@ local mode = if Integration.Authorized and Integration.Capabilities.RemoteBuy
 	then "adaptador autorizado"
 	else "solo observación"
 show("NOVA " .. Config.Version .. " listo\nRemote Buy: " .. mode
-	.. "\nValidación en vivo: pendiente", COLORS.accent)
+	.. "\n" .. integrationStatus, COLORS.accent)
 
 -- Keep the compatibility table required so Studio surfaces an error if its
 -- declaration is removed accidentally during future refactors.

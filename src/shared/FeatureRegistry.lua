@@ -10,7 +10,12 @@ return table.freeze({
 	RemoteBuy = table.freeze({
 		mode = "observation-or-authorized-adapter",
 		implementation = "migrated-core",
-		validation = "automated-core-no-live-game",
+		validation = "automated-core-studio-harness-pending-execution",
+	}),
+	AuthorizedDemo = table.freeze({
+		mode = "game-owner-authorized",
+		implementation = "server-client-demo-and-studio-harness",
+		validation = "rojo-built-no-studio-runtime-result-yet",
 	}),
 	AutoBuy = table.freeze({
 		mode = "authorized-adapter-required",

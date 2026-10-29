@@ -21,6 +21,7 @@ export type Receipt = {
 	success: boolean,
 	controlId: string?,
 	revision: number?,
+	terminal: boolean?,
 	reason: string?,
 }
 
@@ -28,6 +29,7 @@ export type Assessment = {
 	status: "confirmed" | "observed" | "rejected" | "inconclusive",
 	reason: string,
 	evidence: { string },
+	terminal: boolean?,
 }
 
 local PurchaseEvidence = {}
@@ -47,6 +49,7 @@ function PurchaseEvidence.assess(
 				status = "confirmed",
 				reason = "authorized adapter returned a successful receipt",
 				evidence = { "receipt:" .. receipt.requestId },
+				terminal = receipt.terminal == true,
 			}
 		end
 		return {

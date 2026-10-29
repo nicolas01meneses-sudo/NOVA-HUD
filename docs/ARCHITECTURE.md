@@ -38,3 +38,33 @@ un remote genérico que acepte instancias arbitrarias.
 
 `auto` solo se alcanza desde `ready`, con un adaptador capaz de activar y una
 prueba `confirmed`. Dos intentos automáticos no confirmados detienen el ciclo.
+
+## Experiencia autorizada de demostración
+
+`demo.project.json` instala un proveedor explícito fuera del núcleo de solo
+lectura. El flujo es:
+
+```text
+BUY verde → proveedor cliente → PurchaseUpgrade → validación servidor
+          ← requestId/recibo ← saldo, revisión y progreso servidor
+```
+
+El cliente nunca propone el precio ni la mejora adquirida. El servidor valida:
+
+- forma y longitud de `requestId`;
+- `controlId` permitido;
+- revisión esperada;
+- intervalo mínimo por jugador;
+- orden de la mejora;
+- saldo autoritativo;
+- idempotencia mediante historial limitado de recibos.
+
+El recibo final usa `terminal=true`; la máquina de estados entra en `complete`
+y apaga AUTO. El catálogo y la economía viven solo durante la sesión de prueba
+y no usan DataStore.
+
+## Captura móvil
+
+`TapCapture` separa `TouchTap` de `InputEnded` de ratón para evitar el doble
+evento y no interpreta arrastres como toques. El HUD usa tamaños relativos,
+restricciones de tamaño y un `ScrollingFrame` para pantallas bajas.

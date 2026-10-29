@@ -44,8 +44,37 @@ src/shared/  -> ReplicatedStorage/NOVA
 src/client/  -> StarterPlayer/StarterPlayerScripts/NOVA
 ```
 
-`src/shared/Integration.lua` está desactivado intencionalmente. El dueño del
-juego debe habilitarlo y aportar callbacks antes de permitir automatización.
+`src/shared/Integration.lua` resuelve un proveedor únicamente cuando el
+proyecto instala un `NOVA_AuthorizedIntegration` válido. El proyecto normal no
+lo incluye y permanece en observación.
+
+## Demostración autorizada de Studio
+
+`demo.project.json` agrega una experiencia aislada con:
+
+- BUY verde táctil;
+- precio, billetera y contador observables;
+- siete mejoras secuenciales;
+- saldo, precios y progresión controlados por servidor;
+- `RemoteFunction` explícita con revisión, idempotencia y rate limit;
+- prueba integral que corre dentro de Studio y muestra `PASS` o `FAIL`.
+
+Construye el lugar con:
+
+```bash
+rojo build demo.project.json -o NOVA-HUD-6.0.1-Studio-Demo.rbxlx
+```
+
+Consulta `docs/INSTALL_STUDIO.md` y `docs/STUDIO_DEMO_TEST.md`. El lugar fue
+construido con Rojo, pero todavía no se declara probado en vivo porque este
+entorno no dispone de Roblox Studio.
+
+## Loader
+
+No hay un loader externo compatible con 6.0. Los loaders 5.6 basados en
+`HttpGet`/`loadstring` son históricos y no pueden instalar la parte de
+servidor. Las entradas soportadas son el `.rbxlx` y Rojo; consulta
+`docs/LOADER_COMPATIBILITY.md`.
 
 ## Validación
 
@@ -55,7 +84,7 @@ Ejecuta:
 bash scripts/check.sh
 ```
 
-El script rechaza APIs de executor en `src/`, compila cuando
+El script rechaza APIs de executor en `src/` y `demo/`, compila cuando
 `luau-compile` está disponible y ejecuta las pruebas de módulos puros cuando
 `luau` está instalado. Consulta `docs/VALIDATION.md` para ver evidencia exacta
 y límites.

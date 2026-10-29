@@ -7,6 +7,7 @@ local ControlFingerprint = require(ReplicatedStorage.NOVA.ControlFingerprint)
 local PurchaseEvidence = require(ReplicatedStorage.NOVA.PurchaseEvidence)
 local RemotePurchaseState = require(ReplicatedStorage.NOVA.RemotePurchaseState)
 local HitTest = require(script.Parent.HitTest)
+local TapCapture = require(script.Parent.TapCapture)
 
 export type Descriptor = ControlFingerprint.Descriptor
 
@@ -29,7 +30,7 @@ export type Controller = typeof(setmetatable({} :: {
 	_pending: Pending?,
 	_lastActionAt: number,
 	_failures: number,
-	_manualConnection: RBXScriptConnection?,
+	_manualConnection: TapCapture.Handle?,
 	_onStatus: (RemotePurchaseState.State) -> (),
 	_destroyed: boolean,
 }, RemotePurchaseController))
@@ -211,11 +212,7 @@ function RemotePurchaseController._armManual(
 		self._manualConnection:Disconnect()
 	end
 	local armedAt = os.clock()
-	self._manualConnection = userInputService.InputEnded:Connect(function(input)
-		if input.UserInputType ~= Enum.UserInputType.Touch
-			and input.UserInputType ~= Enum.UserInputType.MouseButton1 then
-			return
-		end
+	self._manualConnection = TapCapture.connect(userInputService, function(position)
 		local current = self:resolve()
 		if not current then
 			return
@@ -223,7 +220,7 @@ function RemotePurchaseController._armManual(
 		local selected = HitTest.pick(
 			self._snapshotter:getPlayerGui(),
 			guiService,
-			Vector2.new(input.Position.X, input.Position.Y),
+			position,
 			function(candidate)
 				return candidate == current.instance
 					or candidate:IsDescendantOf(current.instance)

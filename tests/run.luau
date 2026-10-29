@@ -6,6 +6,9 @@ local PurchaseEvidence = require("../src/shared/PurchaseEvidence")
 local RemotePurchaseState = require("../src/shared/RemotePurchaseState")
 local AuthorizedCallbackAdapter = require("../src/client/Adapters/AuthorizedCallbackAdapter")
 local ReadOnlyAdapter = require("../src/client/Adapters/ReadOnlyAdapter")
+local IntegrationResolver = require("../src/shared/Integration")
+local DemoCatalog = require("../demo/shared/DemoCatalog")
+local DemoPurchaseService = require("../demo/server/DemoPurchaseService")
 
 local passed = 0
 local failed = 0
@@ -199,6 +202,28 @@ test("authorized adapter requires a request id for accepted work", function()
 	expect(result.reason == "accepted requests require a non-empty requestId")
 end)
 
+test("integration resolver is read-only without an explicit provider", function()
+	local provider, reason = IntegrationResolver.resolve(nil)
+	expect(provider.Authorized == false)
+	expect(reason == "NOVA_AuthorizedIntegration is not installed")
+end)
+
+test("integration resolver accepts a complete authorized contract", function()
+	local candidate = {
+		Authorized = true,
+		ProviderId = "test-provider",
+		Capabilities = { RemoteBuy = true },
+		requestPurchase = function()
+			return { accepted = false }
+		end,
+		readReceipt = function()
+			return nil
+		end,
+	}
+	local provider = IntegrationResolver.resolve(candidate)
+	expect(provider == candidate)
+end)
+
 test("auto remains locked after observed evidence", function()
 	local machine = RemotePurchaseState.new()
 	machine:link(true)
@@ -240,6 +265,119 @@ test("unlink clears authorization and prior evidence", function()
 	expect(machine.activationCapable == false)
 	expect(machine.autoUnlocked == false)
 	expect(machine.lastAssessment == nil)
+end)
+
+test("a terminal receipt completes and stops authorized auto", function()
+	local machine = RemotePurchaseState.new()
+	machine:link(true)
+	machine:beginTest()
+	machine:finishTest({ status = "confirmed", reason = "receipt", evidence = {}, terminal = false })
+	machine:setAuto(true)
+	machine:beginTest()
+	machine:finishTest({ status = "confirmed", reason = "last receipt", evidence = {}, terminal = true })
+	expect(machine.status == "complete")
+	expect(machine.terminal == true)
+	expect(machine.autoEnabled == false)
+	local began = machine:beginTest()
+	expect(began == false)
+end)
+
+test("demo server validates revision, rate and idempotency", function()
+	local service = DemoPurchaseService.new(DemoCatalog)
+	service:addPlayer("player")
+	local first = service:purchase("player", {
+		requestId = "request-first",
+		controlId = DemoCatalog.ControlId,
+		expectedRevision = 0,
+	}, 1)
+	expect(first ~= nil and first.success == true)
+	local duplicate = service:purchase("player", {
+		requestId = "request-first",
+		controlId = DemoCatalog.ControlId,
+		expectedRevision = 0,
+	}, 1.01)
+	expect(duplicate ~= nil and duplicate.success == true)
+	expect(duplicate.wallet == first.wallet)
+
+	local limited = service:purchase("player", {
+		requestId = "request-rate",
+		controlId = DemoCatalog.ControlId,
+		expectedRevision = 1,
+	}, 1.05)
+	expect(limited ~= nil and limited.success == false)
+	expect(limited.reason == "server rate limit")
+
+	local stale = service:purchase("player", {
+		requestId = "request-stale",
+		controlId = DemoCatalog.ControlId,
+		expectedRevision = 0,
+	}, 2)
+	expect(stale ~= nil and stale.success == false)
+	expect(stale.reason == "revision mismatch")
+	local snapshot = service:snapshot("player")
+	expect(snapshot ~= nil and snapshot.purchaseCount == 1)
+end)
+
+test("demo server rejects an unauthorized control id", function()
+	local service = DemoPurchaseService.new(DemoCatalog)
+	service:addPlayer("player")
+	local receipt = service:purchase("player", {
+		requestId = "request-wrong-control",
+		controlId = "some-other-button",
+		expectedRevision = 0,
+	}, 1)
+	expect(receipt ~= nil and receipt.success == false)
+	expect(receipt.reason == "controlId is not authorized")
+	local snapshot = service:snapshot("player")
+	expect(snapshot ~= nil and snapshot.purchaseCount == 0)
+end)
+
+test("demo server never trusts a client to bypass its balance", function()
+	local poorCatalog = {
+		ControlId = "buy",
+		Currency = "$",
+		InitialWallet = 5,
+		MinimumServerIntervalSeconds = 0,
+		MaximumReceiptHistory = 8,
+		Upgrades = {
+			{ id = "expensive", name = "Expensive", price = 10 },
+		},
+	}
+	local service = DemoPurchaseService.new(poorCatalog)
+	service:addPlayer(1)
+	local receipt = service:purchase(1, {
+		requestId = "request-no-money",
+		controlId = "buy",
+		expectedRevision = 0,
+		price = 0,
+	}, 1)
+	expect(receipt ~= nil and receipt.success == false)
+	expect(receipt.reason == "insufficient server-authoritative balance")
+	local snapshot = service:snapshot(1)
+	expect(snapshot ~= nil and snapshot.wallet == 5 and snapshot.purchaseCount == 0)
+end)
+
+test("demo server buys the catalog in order and returns a terminal receipt", function()
+	local service = DemoPurchaseService.new(DemoCatalog)
+	service:addPlayer(42)
+	local expectedWallet = DemoCatalog.InitialWallet
+	local receipt = nil
+	for index, upgrade in ipairs(DemoCatalog.Upgrades) do
+		receipt = service:purchase(42, {
+			requestId = string.format("request-%02d", index),
+			controlId = DemoCatalog.ControlId,
+			expectedRevision = index - 1,
+		}, index)
+		expectedWallet -= upgrade.price
+		expect(receipt ~= nil and receipt.success == true)
+		expect(receipt.upgradeId == upgrade.id)
+		expect(receipt.wallet == expectedWallet)
+	end
+	expect(receipt ~= nil and receipt.terminal == true)
+	local snapshot = service:snapshot(42)
+	expect(snapshot ~= nil and snapshot.terminal == true)
+	expect(snapshot.purchaseCount == #DemoCatalog.Upgrades)
+	expect(snapshot.wallet == expectedWallet)
 end)
 
 print(string.format("RESULT %d passed, %d failed", passed, failed))

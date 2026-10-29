@@ -1,60 +1,70 @@
 # Registro de validación
 
 Fecha: 2026-10-29
-Base: `main` en `35edc74f77db7ea70b6bc1f20479ded178bb8390`
 
-## Resultado ejecutado antes de publicar
+Base de esta etapa: `fbc8780119ec31d20cf971a3377ee27707c2e36a` en
+`refactor/remote-buy-v6`.
+
+## Resultado ejecutado en el entorno de construcción
 
 | Comprobación | Resultado |
 | --- | --- |
-| Pruebas de módulos puros con Luau CLI | 15/15 aprobadas |
-| Parseo con Luau CLI | 17/17 archivos de `src/` aceptados |
-| Política de APIs en `src/` | aprobada |
-| Sintaxis de `scripts/check.sh` | aprobada |
-| Validez de `default.project.json` | aprobada |
-| Roblox Studio / servidor real | no ejecutado |
+| Pruebas de módulos puros con Luau CLI | 22/22 aprobadas |
+| Parseo con Luau CLI | 24/24 archivos de `src/` y `demo/` aceptados |
+| Política de APIs | aprobada |
+| Construcción `default.project.json` con Rojo 7.7.1 | aprobada |
+| Construcción `demo.project.json` con Rojo 7.7.1 | aprobada |
+| Parseo XML de ambos `.rbxlx` | aprobado |
+| Sintaxis de scripts Bash | aprobada |
+| Validez de proyectos JSON | aprobada |
+| Integridad del ZIP con `unzip -t` | aprobada |
+| Rebuild de Rojo desde una extracción limpia del ZIP | aprobado |
+| Roblox Studio / Device Simulator | no ejecutado en este entorno |
 
-La política estática rechaza APIs de executor, loaders dinámicos y llamadas
-directas a `FireServer`/`InvokeServer` dentro de la arquitectura nueva. Los
-archivos históricos 3.x–5.6 no se presentan como código validado.
+La política rechaza APIs de executor y loaders dinámicos en la arquitectura
+nueva. También rechaza llamadas directas a remotes en `src/`; la única
+invocación cliente-servidor permitida en `demo/` está aislada en
+`NOVA_AuthorizedIntegration.lua`.
 
-## Cobertura automatizada real
+## Cobertura automatizada fuera del motor
 
-- precios agrupados, abreviados, con moneda y el sufijo localizado
-  `sexdecillón` visto en la interfaz de referencia;
-- rechazo de monedas incompatibles;
-- re-vinculación de un control recreado mediante huella estable;
-- rechazo de vínculos heurísticos ambiguos;
-- prohibición de degradar un `NOVA_ControlId` explícito a un candidato sin ID;
-- contador explícito como evidencia confirmatoria;
-- bajada de saldo como evidencia observada, nunca confirmatoria;
-- recibo exitoso dentro del evaluador de evidencia;
-- adaptador de solo lectura sin capacidad de activación;
-- exigencia de `requestId` para toda solicitud autorizada aceptada;
-- bloqueo de AUTO después de evidencia no confirmada;
-- desbloqueo de AUTO solo para un estado con activación autorizada;
-- limpieza de autorización y evidencia al desvincular.
+- parsing y comparación de precios, monedas y sufijos grandes;
+- re-vinculación por huella y rechazo de ambigüedad;
+- imposibilidad de degradar un ID explícito a un candidato heurístico;
+- separación entre evidencia observada y confirmada;
+- bloqueo y desbloqueo correcto de AUTO;
+- detención de AUTO mediante recibo terminal;
+- proveedor deshabilitado cuando no existe integración explícita;
+- validación del contrato del proveedor autorizado;
+- catálogo servidor comprado en orden;
+- saldo, revisión y contador autoritativos;
+- rate limit del servidor;
+- idempotencia de `requestId`;
+- rechazo de un `controlId` no autorizado;
+- rechazo por saldo insuficiente aunque el cliente envíe un precio falso;
+- recibo final `terminal=true`.
 
-## Revisado estáticamente, no ejecutado en Studio
+## Prueba integral incluida, pendiente de ejecución real
 
-- construcción y destrucción del HUD 6.0;
-- ciclo de vida de conexiones;
-- escaneo acotado de `PlayerGui`, tags y atributos;
-- corrección de coordenadas por `GuiInset` con fallback conservador;
-- Salto infinito con opt-in del dueño;
-- contrato del adaptador autorizado.
+`StudioFlowTest.client.lua` está dentro del lugar construido. Al pulsar
+**EJECUTAR PRUEBA COMPLETA EN STUDIO** prueba dentro del motor:
 
-“Revisado estáticamente” no significa operativo. Hace falta una sesión de
-Studio con una experiencia propia y controles instrumentados para validar esos
-flujos.
+`detectar BUY → leer precio → solicitar compra → validar recibo → habilitar AUTO
+→ recorrer siete mejoras → verificar saldo/contador → detenerse`.
 
-## No probado ni declarado operativo
+El resultado aparece como `PASS` o `FAIL` en la tarjeta y en Output. Este
+entorno Linux no incluye Roblox Studio, por lo que no se registró un `PASS` de
+Studio ni del simulador móvil. El arnés no se presenta como ejecutado solo por
+haber sido construido.
 
-- Compra Remota automática en Sell Lemons;
-- activación programática del BUY verde en una experiencia de terceros;
-- Auto Comprar, Auto Ice o Auto Rebirth en un servidor real;
-- Salto infinito durante una sesión real;
-- callback de compra conectado a un servidor propietario;
-- compatibilidad con ejecutores externos;
-- cualquier interacción dependiente de controles o servicios privados de un
-  juego de terceros.
+## Estado funcional declarado
+
+| Función | Estado |
+| --- | --- |
+| Servicio de compra y reglas de servidor | probado como módulo puro |
+| Proyecto y lugar Rojo | construidos y validados estructuralmente |
+| BUY verde, billetera, precio y contador | implementados; pendientes de Studio |
+| Flujo completo autorizado | arnés implementado; pendiente de ejecutarse en Studio |
+| Vinculación táctil `TouchTap` | implementada; pendiente de Device Simulator/hardware |
+| Loader externo | no existe y no se declara compatible |
+| Auto Ice, Auto Comprar legado y Auto Rebirth | no validados en servidor real |

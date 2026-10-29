@@ -1,0 +1,41 @@
+{
+  "name": "NOVA-HUD-Authorized-Demo",
+  "servePort": 34872,
+  "tree": {
+    "$className": "DataModel",
+    "ReplicatedStorage": {
+      "NOVA": {
+        "$path": "src/shared"
+      },
+      "NOVA_Demo": {
+        "$path": "demo/shared"
+      },
+      "NOVA_AuthorizedIntegration": {
+        "$path": "demo/integration/NOVA_AuthorizedIntegration.lua"
+      }
+    },
+    "ServerScriptService": {
+      "NOVA_Demo": {
+        "$path": "demo/server"
+      }
+    },
+    "StarterPlayer": {
+      "StarterPlayerScripts": {
+        "NOVA": {
+          "$path": "src/client"
+        },
+        "NOVA_Demo": {
+          "$path": "demo/client"
+        }
+      }
+    },
+    "Lighting": {
+      "$properties": {
+        "Brightness": 2,
+        "ClockTime": 18.5,
+        "Ambient": [20, 35, 58],
+        "OutdoorAmbient": [35, 55, 82]
+      }
+    }
+  }
+}
