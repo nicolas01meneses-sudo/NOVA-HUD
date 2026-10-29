@@ -1,6 +1,6 @@
 -- NOVA HUD 5.6.1 - cargador con diagnóstico de inicio (Luau)
 -- Si la descarga, compilación o ejecución falla, muestra el motivo en pantalla.
-local URL="https://raw.githubusercontent.com/nicolas01meneses-sudo/NOVA-HUD/main/NOVA_HUD_5_6_1_NEON.lua"
+local URL="https://raw.githubusercontent.com/nicolas01meneses-sudo/NOVA-HUD/fix/legacy-56-buy-green/NOVA_HUD_5_6_1_NEON.lua"
 local function report(stage,err)
     local msg=tostring(err or "Error desconocido")
     warn("[NOVA 5.6.1 / "..stage.."] "..msg)
