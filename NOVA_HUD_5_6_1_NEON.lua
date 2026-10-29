@@ -127,6 +127,7 @@ NOVA_CORE.remoteLinkActive=false
 NOVA_CORE.remoteLinkConnection=nil
 NOVA_CORE.remoteLinkSequence=0
 NOVA_CORE.remoteMessage='Compra Remota: BUSCAR BUY verde en HUD inferior.'
+NOVA_CORE.remoteLastOffer=nil
 NOVA_CORE.buyAreaOrigin=nil -- reference near player's tycoon
 NOVA_CORE.buyAreaWorld=nil
 NOVA_CORE.buyWasActive=false
@@ -840,9 +841,6 @@ toggle(remoteBuyPanel,'Auto Compra Remota','remoteBuy')
 action(remoteBuyPanel,'VINCULAR BUY VERDE',function()
     if NOVA_CORE.remoteBeginLink then NOVA_CORE.remoteBeginLink() end
 end)
-action(remoteBuyPanel,'VINCULAR BUY (SI APARECE UN MENÚ)',function()
-    if NOVA_CORE.remoteBeginLink then NOVA_CORE.remoteBeginLink('confirm') end
-end)
 action(remoteBuyPanel,'PROBAR 1 COMPRA REMOTA',function()
     if NOVA_CORE.remoteSendOne then NOVA_CORE.remoteSendOne(true) end
 end)
@@ -1438,6 +1436,8 @@ NOVA_CORE.onToggle=function(key,reason)
             state.buy=false
             state.buyMars=false
             state.autoStations=false
+            state.iceTeleport=false
+            for _,draw in ipairs(NOVA_CORE.switches.iceTeleport or {}) do draw() end
             NOVA_CORE.buyPending=nil
             for _,name in ipairs({'buy','buyMars','autoStations'}) do
                 for _,draw in ipairs(NOVA_CORE.switches[name] or {}) do draw() end
@@ -2261,7 +2261,7 @@ local function findManageUpgrades(wallet)
     return results,foundManage
 end
 
--- NOVA 5.6: Remote Buy oficial del juego, separado de los TP.
+-- NOVA 5.6.1: Remote Buy oficial del juego, separado de los TP.
 -- La vinculación es explícita cuando la UI no identifica el botón por su nombre.
 NOVA_CORE.remoteStatus=function(message)
     NOVA_CORE.remoteMessage=message
@@ -2270,6 +2270,7 @@ NOVA_CORE.remoteStatus=function(message)
         label.Text=tostring(message)..'\nIntentos: '..NOVA_CORE.remoteAttempts
             ..' | confirmadas: '..NOVA_CORE.remoteConfirmed
             ..' | probables: '..NOVA_CORE.remoteProbable
+            ..'\nSiguiente: '..tostring(NOVA_CORE.remoteLastOffer or 'no identificada'):sub(1,85)
     end
 end
 
@@ -2510,6 +2511,7 @@ NOVA_CORE.remoteSendOne=function(testOnly)
     local beforeCount=observedBoughtCount()
     local beforeMoney=walletMoney()
     local beforeOffer=remoteNextOffer(button,coordinate)
+    NOVA_CORE.remoteLastOffer=beforeOffer
     if not beforeMoney then
         NOVA_CORE.remoteStop('Saldo no legible; pausada para evitar clics sin control.')
         return false
@@ -2570,6 +2572,7 @@ NOVA_CORE.runRemoteBuy=function()
         local afterCount=observedBoughtCount()
         local afterMoney=walletMoney()
         local afterOffer=remoteNextOffer(pending.obj,pending.coordinate)
+        NOVA_CORE.remoteLastOffer=afterOffer
         local offerChanged=pending.beforeOffer and afterOffer
             and pending.beforeOffer~=afterOffer
         local verified=pending.beforeCount~=nil and afterCount~=nil
@@ -2585,12 +2588,13 @@ NOVA_CORE.runRemoteBuy=function()
                 and 'PRUEBA OK: compra confirmada por contador. Ya puedes encender AUTO.'
                 or 'Compra REMOTA confirmada por contador.')
         elseif probablyBought then
-            if pending.testOnly then NOVA_CORE.remoteReady=true end
+            -- Cambio de saldo no prueba que esta mejora se haya comprado.
+            -- No desbloquear AUTO sin un contador estable de compras.
             NOVA_CORE.remoteProbable=NOVA_CORE.remoteProbable+1
             NOVA_CORE.remoteFailures=0
             NOVA_CORE.remoteStatus(pending.testOnly
-                and 'PRUEBA PROBABLE: saldo bajó. Revisa que realmente fue una compra antes de AUTO.'
-                or 'Saldo bajó: compra probable (sin contador).')
+                and 'PRUEBA OBSERVADA: saldo bajó; AUTO sigue bloqueado sin contador.'
+                or 'Saldo bajó: compra posible, no confirmada.')
         elseif offerChanged then
             NOVA_CORE.remoteUnconfirmed=NOVA_CORE.remoteUnconfirmed+1
             NOVA_CORE.remoteFailures=NOVA_CORE.remoteFailures+1
