@@ -23,7 +23,7 @@ Rama: `ui/neon-5-9-mobile-diagnostics`. Base: `ui/auto-scan-neon-5-8`.
 ## Casos de prueba propuestos
 
 1. Ejecutar `node tests/static_5_9.test.cjs` desde la raíz del repositorio. El CI lo ejecuta en cada push/PR de la rama.
-2. Verificar la sintaxis con un compilador Luau real (pendiente).
+2. **Compilación Luau superada:** el workflow `NOVA 5.9 static regression`, en la ejecución 41076129188, compiló `NOVA_HUD_5_9_NEON.lua` y `NOVA_BOOT_5_9.lua` con el compilador oficial fijado en el commit `a4818b6678822bb726a0eb2299cae751d3017a6a`. Esto verifica sintaxis, no ejecución en Roblox.
 3. Usar una experiencia de Roblox Studio autorizada para pruebas visuales en Device Simulator de teléfono; orientación vertical y horizontal.
 4. Mover el HUD a los bordes y rotar el dispositivo: no debe perderse fuera de pantalla.
 5. Con un BUY, dos BUY o ningún BUY visible, comprobar estados único / ambiguo / ausente; ninguno implica compra.
@@ -40,4 +40,4 @@ El archivo `selllemon.lua` publicado en `Fluxyyy333/HoshiOnTop` usa Luraph v14.7
 
 ## Evidencia pendiente
 
-No se ha realizado renderizado en Roblox Studio/Android ni comprobación de compra en el juego original. Esta entrega es una mejora de interfaz, observabilidad y protección frente a controles ambiguos; no una demostración de Hoshi ni una promesa de compras.
+La compilación Luau y las 18 pruebas estáticas pasaron en GitHub Actions. No se ha realizado renderizado en Roblox Studio/Android ni comprobación de compra en el juego original. Esta entrega es una mejora de interfaz, observabilidad y protección frente a controles ambiguos; no una demostración de Hoshi ni una promesa de compras.
