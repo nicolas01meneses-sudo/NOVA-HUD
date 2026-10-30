@@ -612,8 +612,10 @@ end
 local function action(parent,name,fn)
     local b=roundedButton(parent,name,COLOR.card,UDim2.new(1,0,0,44))
     b.TextSize=12
-    b.TextWrapped=true
+    b.TextScaled=true
+    b.TextWrapped=false
     b.TextTruncate=Enum.TextTruncate.AtEnd
+    make('UITextSizeConstraint',{MinTextSize=10,MaxTextSize=12},b)
     b.MouseButton1Click:Connect(fn)
     return b
 end
@@ -750,6 +752,7 @@ local a,b,worldOneInfo=columns(p1)
 local cBuild=section(a,'AUTO MEJORAS')
 local quickBuyEarth=roundedButton(cBuild,'AUTO COMPRAR: OFF',COLOR.nav,UDim2.new(1,0,0,44))
 quickBuyEarth.TextColor3=COLOR.accent;outline(quickBuyEarth)
+fitText(quickBuyEarth,10,14)
 table.insert(buildActionButtons,{button=quickBuyEarth,world=1})
 table.insert(NOVA_CORE.zoneStatusLabels,statusText(cBuild,'AUTO COMPRAR APAGADO · Zona 1: Lemon Stand',true))
 toggle(cBuild,'Mejorar puestos (aparte)','autoStations')
@@ -784,6 +787,7 @@ statusText(iceBox,'Recoge hielo cercano. Puedes desplazarte entre rocas.',true)
 local upgradeBox=section(lb,'AUTO MEJORAS')
 local quickBuyMars=roundedButton(upgradeBox,'AUTO COMPRAR: OFF',COLOR.nav,UDim2.new(1,0,0,44))
 quickBuyMars.TextColor3=COLOR.accent;outline(quickBuyMars)
+fitText(quickBuyMars,10,14)
 table.insert(buildActionButtons,{button=quickBuyMars,world=2})
 table.insert(NOVA_CORE.zoneStatusLabels,statusText(upgradeBox,'AUTO COMPRAR APAGADO · Zona 1: Oxygen Pump',true))
 toggle(upgradeBox,'Mejorar puestos (aparte)','autoStations')
@@ -3345,7 +3349,7 @@ UserInputService.InputBegan:Connect(function(input,gameProcessed)
 end)
 showPage('World1')
 detectWorld()
-refresh()
+doRefresh()
 
 -- Only attempt visible or near-enough interactions at a controlled rate.
 -- Not tested in Sell Lemons. A successful API call does not confirm collection.
@@ -3372,7 +3376,7 @@ task.spawn(function()
             NOVA_CORE.buyPending=nil
         end
         NOVA_CORE.buyWasActive=buildActive
-        if os.clock()-lastRefresh>(buildActive and 1.1 or (state.ice and 1.8 or 2.5)) then doRefresh() end
+        if os.clock()-lastRefresh>(buildActive and 1.2 or (state.ice and 2.2 or 3.5)) then doRefresh() end
         if os.clock()-lastInvestorRefresh>=1.25 then
             lastInvestorRefresh=os.clock()
             if NOVA_CORE.detectedWorld==1 or state.autoRebirth then updateInvestors(true) end
