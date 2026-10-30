@@ -25,3 +25,24 @@ jobs:
         run: node tests/static_5_9.test.cjs
       - name: Check whitespace in current commit
         run: git diff --check HEAD~1 HEAD
+
+  syntax:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checkout official Luau compiler at pinned revision
+        uses: actions/checkout@v4
+        with:
+          repository: luau-lang/luau
+          ref: a4818b6678822bb726a0eb2299cae751d3017a6a
+          path: .luau-upstream
+          persist-credentials: false
+      - name: Build Luau compiler
+        run: |
+          cmake -S .luau-upstream -B .luau-upstream/build -DCMAKE_BUILD_TYPE=Release -DLUAU_BUILD_TESTS=OFF
+          cmake --build .luau-upstream/build --target Luau.Compile.CLI --parallel 2
+      - name: Compile NOVA 5.9 and its loader
+        run: |
+          .luau-upstream/build/luau-compile NOVA_HUD_5_9_NEON.lua > /dev/null
+          .luau-upstream/build/luau-compile NOVA_BOOT_5_9.lua > /dev/null
