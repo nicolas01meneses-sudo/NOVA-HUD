@@ -1,7 +1,7 @@
 # NOVA HUD 5.8 NEON — escaneo automático sin vinculación manual
 
-**Rama:** `ui/auto-scan-neon-5-8`  
-**Base:** `ui/auto-scan-neon-5-7`  
+**Rama:** `ui/auto-scan-neon-5-8`
+**Base:** `ui/auto-scan-neon-5-7`
 **Archivos nuevos:** `NOVA_HUD_5_8_NEON.lua` y `NOVA_BOOT_5_8.lua`.
 
 ## Lo que se corrigió
