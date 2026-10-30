@@ -4,7 +4,7 @@ on:
   push:
     branches: ["ui/normal-auto-buy-5-10"]
   pull_request:
-    branches: ["ui/auto-scan-neon-5-8"]
+    branches: ["ui/neon-5-9-mobile-diagnostics"]
   workflow_dispatch:
 
 permissions:
