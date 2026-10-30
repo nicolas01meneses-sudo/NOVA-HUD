@@ -1,0 +1,27 @@
+name: NOVA 5.9 static regression
+
+on:
+  push:
+    branches: ["ui/neon-5-9-mobile-diagnostics"]
+  pull_request:
+    branches: ["ui/auto-scan-neon-5-8"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  static:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Verify NOVA 5.9 sources
+        run: node tests/static_5_9.test.cjs
+      - name: Check whitespace in current commit
+        run: git diff --check HEAD~1 HEAD
