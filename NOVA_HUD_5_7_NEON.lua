@@ -459,7 +459,7 @@ local function columns(page)
             Size=UDim2.new(.495,0,1,0),BackgroundColor3=COLOR.panel,BorderSizePixel=0},lower)
         corner(statPanel,12);outline(statPanel)
         local statTitle=textLabel(statPanel,'SISTEMA / STATS',15,true,COLOR.accent)
-        statTitle.Position=UDim2.fromOffset(12,7);statTitle.Size=UDim2.new(1,-24,0,24)
+        statTitle.Position=UDim2.fromOffset(12,5);statTitle.Size=UDim2.new(1,-24,0,22)
 fitText(statTitle,12,15)
         dashboardStatLabels[page]={}
         for i,info in ipairs({
@@ -469,20 +469,20 @@ fitText(statTitle,12,15)
             local column=(i-1)%2
             local tileRow=math.floor((i-1)/2)
             local tile=make('Frame',{
-                Position=UDim2.new(column==0 and .02 or .52,0,0,29+tileRow*43),
-                Size=UDim2.new(.46,0,0,39),BackgroundColor3=COLOR.card,
+                Position=UDim2.new(column==0 and .02 or .52,0,0,32+tileRow*40),
+                Size=UDim2.new(.46,0,0,37),BackgroundColor3=COLOR.card,
                 BorderSizePixel=0,ClipsDescendants=true
             },statPanel)
             corner(tile,7)
             local small=textLabel(tile,info[1],10,false,COLOR.muted)
             small.TextXAlignment=Enum.TextXAlignment.Center
-            small.Size=UDim2.new(1,-8,0,14)
+            small.Size=UDim2.new(1,-8,0,13)
             small.Position=UDim2.fromOffset(4,1)
             fitText(small,9,10)
             local val=textLabel(tile,'0',17,true,info[2])
             val.TextXAlignment=Enum.TextXAlignment.Center
             val.Position=UDim2.fromOffset(4,14)
-            val.Size=UDim2.new(1,-8,0,23)
+            val.Size=UDim2.new(1,-8,0,21)
             fitText(val,11,18)
             dashboardStatLabels[page][i]=val
         end
