@@ -1,0 +1,24 @@
+name: NOVA 5.8 static regression
+on:
+  push:
+    branches: ["ui/auto-scan-neon-5-8"]
+  pull_request:
+    branches: ["ui/auto-scan-neon-5-7"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  static:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Run static checks
+        run: node tests/static_5_8.test.cjs
+      - name: Check whitespace
+        run: git diff --check HEAD~1 HEAD
