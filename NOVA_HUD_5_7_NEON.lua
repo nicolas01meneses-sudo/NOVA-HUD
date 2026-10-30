@@ -402,6 +402,13 @@ local pVisual=addPage('Visual','Visual','V')
 local pConfig=addPage('Config','Config','C')
 
 
+local function compactStat(value)
+    local n=tonumber(value) or 0
+    if n>=1000000000 then return string.format('%.1fB',n/1000000000) end
+    if n>=1000000 then return string.format('%.1fM',n/1000000) end
+    if n>=10000 then return string.format('%.1fk',n/1000) end
+    return tostring(math.floor(n))
+end
 local dashboardStatLabels={}
 local dashboardScanMeta={}
 local dashboardScanView={} -- background scan status
@@ -820,6 +827,7 @@ end
 
 -- El menú BUILD permite acceder rápidamente a los controles reales del mundo.
 local resetUiScale=nil
+local worldStatus=nil -- detected world in Config, no Scanner page
 
 do
 local buildL,buildR=columns(pBuild)
@@ -1016,6 +1024,9 @@ local movementCard=section(visualR,'MOVIMIENTO')
 toggle(movementCard,'Salto infinito','infiniteJump')
 statusText(movementCard,
     'ON: toca salto mientras estás en el aire para volver a saltar. OFF: salto normal.',true)
+local highlightPanel=section(visualR,'RESALTAR OBJETIVOS')
+toggle(highlightPanel,'Mostrar objetivos detectados','radar')
+statusText(highlightPanel,'El escáner identifica objetivos en segundo plano.',true)
 NOVA_CORE.jumpRequestConnection=UserInputService.JumpRequest:Connect(function()
     if not running or not gui.Parent or not state.infiniteJump then return end
     local now=os.clock()
@@ -1042,15 +1053,32 @@ resetView.MouseButton1Click:Connect(function()
     if resetUiScale then resetUiScale() end
 end)
 local configInfo=section(configR,'INFORMACIÓN')
-statusText(configInfo,'NOVA v5.7 NEON\nInterfaz optimizada para móvil.\nLas estadísticas registran intentos, no recompensas confirmadas.',true)
+statusText(configInfo,'NOVA v5.7 NEON\nEscaneo automático activo. Intentos no equivalen a recompensas.',true)
+worldStatus=statusText(configInfo,'Detectando mundo automáticamente…',true)
+local currentNotice=statusText(configInfo,'Estado: sin avisos recientes.',true)
+NOVA_CORE.statusNotice=function(message)
+    if currentNotice and currentNotice.Parent then
+        currentNotice.Text='Estado: '..tostring(message)
+    end
+end
+local safetyPanel=section(configR,'CONTROL GENERAL')
+action(safetyPanel,'DETENER TODAS LAS FUNCIONES',function()
+    for key in pairs(state) do
+        if key~='needed' and key~='cheapFirst' then state[key]=false end
+    end
+    NOVA_CORE.buyPending=nil
+    NOVA_CORE.remotePending=nil
+    for _,draws in pairs(NOVA_CORE.switches) do
+        for _,draw in ipairs(draws) do draw() end
+    end
+    if NOVA_CORE.onToggle then NOVA_CORE.onToggle('radar') end
+    if NOVA_CORE.statusNotice then
+        NOVA_CORE.statusNotice('Todas las funciones detenidas.')
+    end
+end)
 end
 
-local da,db=columns(pd)
-local scanBox=section(da,'ESCÁNER DE OBJETOS')
-local worldStatus=statusText(scanBox,'Mundo: buscando indicador de moneda...',true)
-local scanStatus=statusText(scanBox,'Preparando escáner...',false)
-local detection=statusText(scanBox,'Sin datos',true)
-local inspection=statusText(scanBox,'Inspección: sin objetivo',true)
+
 local function rootPart()
     local character=player.Character
     local root=character and character:FindFirstChild('HumanoidRootPart')
@@ -1506,7 +1534,7 @@ NOVA_CORE.onToggle=function(key,reason)
     end
     if reason=='no-target' then
         -- Toggle remains available: show explicitly why there are no actions yet.
-        if NOVA_CORE.statusNotice then NOVA_CORE.statusNotice('Activado sin objetivos compatibles para '..key..'. Revisa el escáner.') end
+        if NOVA_CORE.statusNotice then NOVA_CORE.statusNotice('Sin objetivos compatibles para '..key..'. Escaneo automático en curso.') end
     end
 end
 -- Respect each prompt/click detector's MaxActivationDistance. Increasing
@@ -3229,27 +3257,7 @@ autoButton.MouseButton1Click:Connect(function()
     end
     displayDetection()
 end)
-local latestMessage='Sin intentos todavía'
-local function countBlueParts()
-    local root=rootPart()
-    if not root then return 0 end
-    local op=OverlapParams.new()
-    op.FilterType=Enum.RaycastFilterType.Exclude
-    op.FilterDescendantsInstances=player.Character and {player.Character} or {}
-    op.MaxParts=1800
-    local ok,parts=pcall(function()return Workspace:GetPartBoundsInRadius(root.Position,70,op)end)
-    if not ok then return 0 end
-    local n=0
-    for _,part in ipairs(parts) do
-        if part:IsA('BasePart') then
-            local c=part.Color
-            -- Bright cyan parts like the crystals in the user video. Visual clue ONLY.
-            if c.B>.64 and c.G>.55 and c.R<.70 and c.B>c.R*1.24
-                and part.Size.Magnitude<30 then n=n+1 end
-        end
-    end
-    return n
-end
+
 local function refresh()
     scanWorld()
     if not NOVA_CORE.startAnchor[NOVA_CORE.detectedWorld] then
@@ -3266,8 +3274,6 @@ local function refresh()
     end
     updateHighlights()
     local f,i,c,u=#hits.fruit,#hits.ice,#hits.cash,#hits.buy
-    scanStatus.Text=string.format('Candidatos próximos (125 studs):\nfruta %d | hielo %d | dinero %d | mejoras %d\nBotones UI de mejoras: %d',f,i,c,u,#guiUpgrades)
-    detection.Text=string.format('Interacciones examinadas: %d\nClick API: %s | saltos: %d',stats.scanned,type(fireclickdetector)=='function' and 'disponible' or 'no disponible',NOVA_CORE.teleportCount)
     w1Status.Text=string.format('Fruta %d  |  dinero %d\nMejoras: %d físicas + %d UI',f,c,u,#guiUpgrades)
     local iceRadius=NOVA_CORE.iceSearchMeters*NOVA_CORE.STUDS_PER_METER
     local iceInSearch=candidate(hits.ice,iceRadius,false)
@@ -3275,240 +3281,21 @@ local function refresh()
     w2Status.Text=string.format('Hielo: %d  |  Radio: %d m\nMejoras visibles: %d',
         i,NOVA_CORE.iceSearchMeters,u+#guiUpgrades)
     for page,vals in pairs(dashboardStatLabels) do
-        vals[1].Text=tostring(i)
-        vals[2].Text=tostring(u+#guiUpgrades)
-        vals[3].Text=tostring(NOVA_CORE.buildHops)
-        vals[4].Text=tostring(NOVA_CORE.batchAttempts)
-        dashboardScanMeta[page].Text=string.format('Hielo: %d • Mejoras: %d\nIntentos: %d • Verificadas: %d\nOmitidas: %d • Sin precio: %d',
-            i,u+#guiUpgrades,NOVA_CORE.batchAttempts,NOVA_CORE.buyVerified,
-            NOVA_CORE.buyQueueStats.skipped or 0,NOVA_CORE.buyQueueStats.unpriced or 0)
+        vals[1].Text=compactStat(i)
+        vals[2].Text=compactStat(u+#guiUpgrades)
+        vals[3].Text=compactStat(NOVA_CORE.buildHops)
+        vals[4].Text=compactStat(NOVA_CORE.batchAttempts)
+        dashboardScanMeta[page].Text=string.format(
+            'Hielo %d • mejoras %d\nFruta %d • dinero %d\nIntentos %d • confirmadas %d',
+            i,u+#guiUpgrades,f,c,NOVA_CORE.batchAttempts,NOVA_CORE.buyVerified)
     end
     footer.Text=string.format('Hielo: %d  |  Mejoras: %d',i,u+#guiUpgrades)
 end
-local debugBox=section(db,'CONTROL Y ESTADO')
-local lastStatus=statusText(debugBox,'Sin intentos',true)
-NOVA_CORE.statusNotice=function(message) lastStatus.Text=message end
-local radarBox=section(db,'VISUAL')
-toggle(radarBox,'Resaltar objetivos detectados','radar')
 local lastRefresh=0
 local function doRefresh()
     refresh()
     lastRefresh=os.clock()
 end
-requestScan=doRefresh
-action(scanBox,'↻ Escanear zona cercana',doRefresh)
--- Raycast is only diagnostic: it does not interact with the game.
-action(scanBox,'Inspeccionar centro de pantalla',function()
-    local camera=Workspace.CurrentCamera
-    if not camera then inspection.Text='Sin cámara activa';return end
-    local vp=camera.ViewportSize
-    local ray=camera:ViewportPointToRay(vp.X/2,vp.Y/2)
-    local params=RaycastParams.new()
-    params.FilterType=Enum.RaycastFilterType.Exclude
-    params.FilterDescendantsInstances=player.Character and {player.Character} or {}
-    local result=Workspace:Raycast(ray.Origin,ray.Direction*150,params)
-    if not result then inspection.Text='No hay pieza frente a la cámara';return end
-    local part=result.Instance
-    local parent=part.Parent
-    local clickCount,promptCount=0,0
-    -- Ancestors/descendants are read only to report available interaction types.
-    for _,obj in ipairs(parent and parent:GetDescendants() or {}) do
-        if obj:IsA('ClickDetector') then clickCount=clickCount+1 end
-        if obj:IsA('ProximityPrompt') then promptCount=promptCount+1 end
-    end
-    inspection.Text=string.format('Pieza: %s\nModelo: %s\nClickDetector: %d | Prompt: %d',
-        part.Name, parent and parent.Name or 'ninguno',clickCount,promptCount)
-end)
--- Touch inspection: lets a user precisely select the BLUE crystal instead of
--- always raycasting the screen centre (which selected GroundMain in the video).
-local tapConnection=nil
-local tapSequence=0
-local hint=roundedButton(gui,'TOCA EL CRISTAL  •  cancelar',COLOR.accent,UDim2.fromOffset(390,46))
-hint.Position=UDim2.new(.5,-195,0,100)
-hint.TextColor3=COLOR.bg
-hint.TextSize=15
-hint.Visible=false
-local function inspectPartAt(pos)
-    local cam=Workspace.CurrentCamera
-    if not cam then return 'Sin camara' end
-    -- InputObject.Position is in screen coordinates, so ScreenPointToRay
-    -- handles Roblox top-bar inset appropriately.
-    local ray=cam:ScreenPointToRay(pos.X,pos.Y)
-    local params=RaycastParams.new()
-    params.FilterType=Enum.RaycastFilterType.Exclude
-    params.FilterDescendantsInstances=player.Character and {player.Character} or {}
-    local result=Workspace:Raycast(ray.Origin,ray.Direction*300,params)
-    if not result then return 'Sin pieza bajo el toque' end
-    local part=result.Instance
-    local model=part:FindFirstAncestorOfClass('Model')
-    local scope=model or part.Parent
-    local clues={}
-    local ancestor=part
-    for _=1,4 do
-        if not ancestor or ancestor==Workspace then break end
-        table.insert(clues,ancestor.Name)
-        ancestor=ancestor.Parent
-    end
-    local detectors,prompts=0,0
-    if scope then
-        for _,desc in ipairs(scope:GetDescendants()) do
-            if desc:IsA('ClickDetector') then detectors=detectors+1 end
-            if desc:IsA('ProximityPrompt') then prompts=prompts+1 end
-        end
-    end
-    local color=part.Color
-    return string.format('Tocado: %s\nRuta corta: %s\nColor RGB: %d/%d/%d\nClick: %d  |  Prompt: %d',
-        part.Name,table.concat(clues,' / '),math.floor(color.R*255+.5),
-        math.floor(color.G*255+.5),math.floor(color.B*255+.5),detectors,prompts)
-end
-local function finishTap()
-    if tapConnection then tapConnection:Disconnect();tapConnection=nil end
-    hint.Visible=false
-    window.Visible=true
-    restore.Visible=true
-    showPage('Tools')
-end
-hint.MouseButton1Click:Connect(function()tapSequence=tapSequence+1;finishTap()end)
-action(scanBox,'TOCAR OBJETO EN EL MAPA',function()
-    tapSequence=tapSequence+1
-    local seq=tapSequence
-    if tapConnection then tapConnection:Disconnect();tapConnection=nil end
-    window.Visible=false
-    restore.Visible=true
-    hint.Visible=true
-    inspection.Text='Modo toque: selecciona un cristal azul, no el suelo.'
-    task.delay(.25,function()
-        if seq~=tapSequence or not gui.Parent then return end
-        tapConnection=UserInputService.InputBegan:Connect(function(input)
-            if input.UserInputType~=Enum.UserInputType.Touch and input.UserInputType~=Enum.UserInputType.MouseButton1 then return end
-            local px,py=input.Position.X,input.Position.Y
-            -- The small top banner is a cancel button, not a resource target.
-            local hp=hint.AbsolutePosition
-            local hs=hint.AbsoluteSize
-            if px>=hp.X and px<=hp.X+hs.X and py>=hp.Y and py<=hp.Y+hs.Y then return end
-            inspection.Text=inspectPartAt(input.Position)
-            tapSequence=tapSequence+1
-            finishTap()
-        end)
-    end)
-    task.delay(18,function()
-        if seq==tapSequence and gui.Parent then
-            inspection.Text='Inspección cancelada: no se tocó un objeto.'
-            tapSequence=tapSequence+1
-            finishTap()
-        end
-    end)
-end)
-action(scanBox,'Comprobar precios e inversores',function()
-    nextBuildTarget()
-    local investors=investorProbe and investorProbe() or 'Sin datos de inversores'
-    inspection.Text=budgetMessage..'\n'..investors
-end)
-action(scanBox,'Ver 5 precios más baratos',function()
-    local money,ordered=pricedBuildQueue()
-    if not money then
-        inspection.Text='Saldo no reconocido. Abre tu tycoon y vuelve a escanear.'
-        return
-    end
-    if #ordered==0 then
-        inspection.Text='Sin plataformas pagables con precio reconocido.'
-        return
-    end
-    local rows={'Saldo: '..tostring(money.label),'Orden: menor precio -> mayor precio'}
-    for i=1,math.min(5,#ordered) do
-        local item=ordered[i]
-        table.insert(rows,string.format('%d. %s | %s | %.0f studs',
-            i,tostring(item.price.label),item.hit.part and item.hit.part.Name or '?',item.d))
-    end
-    inspection.Text=table.concat(rows,'\n')
-end)
-action(scanBox,'Resaltar próxima plataforma',function()
-    local hit=nextBuildTarget()
-    if not hit or not hit.part then
-        inspection.Text='No hay una plataforma pagable y elegible en la zona actual.'
-        return
-    end
-    local pad=hit.part
-    local price,reason=upgradeCost(hit)
-    local ownerStatus=plotOwnedByPlayer(pad)
-    local ownerText=ownerStatus==true and 'Mi parcela (confirmado)'
-        or (ownerStatus==false and 'Parcela ajena' or 'Propietario no identificado')
-    local h=Instance.new('Highlight')
-    h.Name='NOVA_NEXT_BUY_DEBUG'
-    h.Adornee=pad
-    h.DepthMode=Enum.HighlightDepthMode.AlwaysOnTop
-    h.FillColor=COLOR.warning
-    h.OutlineColor=COLOR.accent
-    h.FillTransparency=.7
-    h.Parent=pad
-    task.delay(10,function() if h.Parent then h:Destroy() end end)
-    inspection.Text=string.format(
-        'Próximo botón: %s\nTipo: %s\nCosto: %s\nDistancia: %.0f studs\n%s\nRuta: %s',
-        pad.Name,hit.obj.ClassName,price and price.label or tostring(reason),
-        distance(pad),ownerText,NOVA_CORE.buyLastReason)
-end)
-action(scanBox,'Ver tipos de botones de mejora',function()
-    local near=candidate(hits.buy,125,false)
-    local names={}
-    for _,h in ipairs(guiUpgrades) do
-        table.insert(names,(h.obj:IsA('TextButton') and h.obj.Text or h.obj.Name):sub(1,26))
-        if #names>=3 then break end
-    end
-    local detail=(#names>0) and table.concat(names,' / ') or 'ninguno'
-    inspection.Text=string.format('Compras físicas: %d | UI: %d\nCercana: %s (%s)\nBotones UI: %s',
-        #hits.buy,#guiUpgrades,near and near.part.Name or 'ninguno',near and near.obj.ClassName or '-',detail)
-end)
-action(scanBox,'Probar fruta cercana',function()
-    local h=nearby(hits.fruit)
-    local ok,msg=attemptInteraction(h)
-    latestMessage=(ok and 'Limón: ' or 'Limón: ')..msg
-    lastStatus.Text=latestMessage
-    refresh()
-end)
-action(scanBox,'Probar hielo cercano',function()
-    local h=nearby(hits.ice)
-    local _,msg=attemptInteraction(h)
-    latestMessage='Hielo: '..msg
-    lastStatus.Text=latestMessage
-    refresh()
-end)
-action(scanBox,'Ir a hielo lejano (prueba)',function()
-    if NOVA_CORE.detectedWorld~=2 then if NOVA_CORE.statusNotice then NOVA_CORE.statusNotice('Prueba disponible en Marte') end return end
-    local hit=candidate(hits.ice,NOVA_CORE.iceSearchMeters*NOVA_CORE.STUDS_PER_METER,false)
-    if not hit then if NOVA_CORE.statusNotice then NOVA_CORE.statusNotice('No hay roca compatible en el radio') end return end
-    if not repositionNear(hit,'Prueba: roca con hielo',false) and NOVA_CORE.statusNotice then
-        NOVA_CORE.statusNotice('No se pudo saltar: objetivo o límite de espera')
-    end
-end)
-action(scanBox,'Probar mejora cercana',function()
-    local hit=nearby(hits.buy)
-    if hit and (hit.obj:IsA('ClickDetector') or hit.obj:IsA('ProximityPrompt')) then
-        local _,msg=attemptInteraction(hit)
-        if NOVA_CORE.statusNotice then NOVA_CORE.statusNotice('Mejora física: '..msg) end
-    elseif #guiUpgrades>0 then
-        local _,msg=attemptInteraction(guiUpgrades[1])
-        if NOVA_CORE.statusNotice then NOVA_CORE.statusNotice('Mejora UI: '..msg) end
-    elseif NOVA_CORE.statusNotice then
-        NOVA_CORE.statusNotice('Sin botón compatible; abre Manage y vuelve a escanear')
-    end
-end)
-action(debugBox,'Volver a posición guardada',function()
-    local char=player.Character
-    if not NOVA_CORE.savedPosition or not char then lastStatus.Text='No hay posición guardada';return end
-    local ok=pcall(function() char:PivotTo(NOVA_CORE.savedPosition) end)
-    if NOVA_CORE.statusNotice then NOVA_CORE.statusNotice(ok and 'Regreso solicitado' or 'Regreso fallido') end
-    if ok then NOVA_CORE.savedPosition=nil end
-end)
-action(debugBox,'Detener funciones',function()
-    for k in pairs(state) do if k~='needed' and k~='cheapFirst' then state[k]=false end end
-    for _,draws in pairs(NOVA_CORE.switches) do
-        for _,draw in ipairs(draws) do draw() end
-    end
-    clearHighlights()
-    latestMessage='Controles desactivados; no hay confirmación de recolección'
-    lastStatus.Text=latestMessage
-end)
-
 local function stopHud()
     running=false
     clearHighlights()
@@ -3585,7 +3372,7 @@ task.spawn(function()
             NOVA_CORE.buyPending=nil
         end
         NOVA_CORE.buyWasActive=buildActive
-        if os.clock()-lastRefresh>(buildActive and 1.05 or (NOVA_CORE.detectedWorld==2 and state.ice and 2.5 or 9)) then doRefresh() end
+        if os.clock()-lastRefresh>(buildActive and 1.1 or (state.ice and 1.8 or 2.5)) then doRefresh() end
         if os.clock()-lastInvestorRefresh>=1.25 then
             lastInvestorRefresh=os.clock()
             if NOVA_CORE.detectedWorld==1 or state.autoRebirth then updateInvestors(true) end
@@ -3644,10 +3431,10 @@ task.spawn(function()
             end
         end
         for page,vals in pairs(dashboardStatLabels) do
-            vals[1].Text=tostring(#hits.ice)
-            vals[2].Text=tostring(#hits.buy+#guiUpgrades)
-            vals[3].Text=tostring(NOVA_CORE.buildHops)
-            vals[4].Text=tostring(NOVA_CORE.batchAttempts)
+            vals[1].Text=compactStat(#hits.ice)
+            vals[2].Text=compactStat(#hits.buy+#guiUpgrades)
+            vals[3].Text=compactStat(NOVA_CORE.buildHops)
+            vals[4].Text=compactStat(NOVA_CORE.batchAttempts)
         end
         task.wait((buildActive or state.remoteBuy or NOVA_CORE.remotePending) and .30
             or (NOVA_CORE.detectedWorld==2 and state.ice and .18 or .7))
