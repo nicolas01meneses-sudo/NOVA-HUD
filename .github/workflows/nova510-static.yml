@@ -1,0 +1,48 @@
+name: NOVA 5.10 static regression
+
+on:
+  push:
+    branches: ["ui/normal-auto-buy-5-10"]
+  pull_request:
+    branches: ["ui/neon-5-9-mobile-diagnostics"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  static:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Verify NOVA 5.10 sources
+        run: node tests/static_5_10.test.cjs
+      - name: Check whitespace in current commit
+        run: git diff --check HEAD~1 HEAD
+
+  syntax:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checkout official Luau compiler at pinned revision
+        uses: actions/checkout@v4
+        with:
+          repository: luau-lang/luau
+          ref: a4818b6678822bb726a0eb2299cae751d3017a6a
+          path: .luau-upstream
+          persist-credentials: false
+      - name: Build Luau compiler
+        run: |
+          cmake -S .luau-upstream -B .luau-upstream/build -DCMAKE_BUILD_TYPE=Release -DLUAU_BUILD_TESTS=OFF
+          cmake --build .luau-upstream/build --target Luau.Compile.CLI --parallel 2
+      - name: Compile NOVA 5.10 and its loader
+        run: |
+          .luau-upstream/build/luau-compile NOVA_HUD_5_10_NEON.lua > /dev/null
+          .luau-upstream/build/luau-compile NOVA_BOOT_5_10.lua > /dev/null
