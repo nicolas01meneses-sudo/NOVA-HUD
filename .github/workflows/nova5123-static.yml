@@ -48,4 +48,3 @@ jobs:
           .luau-upstream/build/luau-compile NOVA_BOOT_5_12_3.lua > /dev/null
       - name: Execute real wallet parsing checks on the production Luau code
         run: node tests/static_5_12_3.test.cjs .luau-upstream/build/luau
-
