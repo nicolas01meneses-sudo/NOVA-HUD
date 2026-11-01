@@ -145,6 +145,8 @@ NOVA_CORE.zoneStage={[1]=1,[2]=1}
 -- The stage is tied to the CURRENT world; no evidence means no auto-skipping.
 NOVA_CORE.zoneReceipts={[1]={},[2]={}}
 NOVA_CORE.zoneEmptyPasses={[1]={},[2]={}}
+NOVA_CORE.zoneEmptyLastScan={[1]={},[2]={}}
+NOVA_CORE.scanRevision=0
 NOVA_CORE.zoneManualAdvances={[1]={},[2]={}}
 NOVA_CORE.zoneRequiredClearScans=3
 NOVA_CORE.zoneNames={
@@ -917,6 +919,7 @@ markStart.MouseButton1Click:Connect(function()
     NOVA_CORE.zoneStage[world]=1
     NOVA_CORE.zoneReceipts[world]={}
     NOVA_CORE.zoneEmptyPasses[world]={}
+    NOVA_CORE.zoneEmptyLastScan[world]={}
     NOVA_CORE.zoneManualAdvances[world]={}
     NOVA_CORE.buyPending=nil
     for _,label in ipairs(startAnchorLabels) do
@@ -937,6 +940,7 @@ action(buildTips,'REINTENTAR PADS SIN RESPUESTA',function()
         NOVA_CORE.zoneStage[world]=1
         NOVA_CORE.zoneReceipts[world]={}
         NOVA_CORE.zoneEmptyPasses[world]={}
+        NOVA_CORE.zoneEmptyLastScan[world]={}
         NOVA_CORE.zoneManualAdvances[world]={}
     end
     batchStatusView.Text='Reiniciado: vuelve a revisar Zona 1 sin saltarla.'
@@ -972,6 +976,7 @@ action(buildTips,'ZONA TERMINADA → AVANZAR UNA',function()
     NOVA_CORE.zoneManualAdvances[world][current]=true
     NOVA_CORE.zoneStage[world]=current+1
     NOVA_CORE.zoneEmptyPasses[world]={}
+    NOVA_CORE.zoneEmptyLastScan[world]={}
     NOVA_CORE.buyPending=nil
     NOVA_CORE.buyCooldown={}
     NOVA_CORE.buyFailCounts={}
@@ -1593,6 +1598,7 @@ local function scanWorld()
     end
     hits=found
     guiUpgrades=scanUpgradeGui()
+    NOVA_CORE.scanRevision+=1
     stats.scanned=scanned
     return found
 end
@@ -2105,6 +2111,7 @@ NOVA_CORE.setBuildMode=function(world,enabled)
         NOVA_CORE.buyPending=nil
         NOVA_CORE.zoneStage[world]=1
         NOVA_CORE.zoneEmptyPasses[world]={}
+        NOVA_CORE.zoneEmptyLastScan[world]={}
         NOVA_CORE.buyCooldown={}
         NOVA_CORE.buyFailCounts={}
         NOVA_CORE.buySkipped={}
@@ -2429,8 +2436,14 @@ local function pricedBuildQueue(mode)
     local verified=NOVA_CORE.zoneReceipts[world][current] or 0
     if verified>0 and current<#names
         and not (current==1 and unknownNearStart>0) then
-        local passes=(NOVA_CORE.zoneEmptyPasses[world][current] or 0)+1
-        NOVA_CORE.zoneEmptyPasses[world][current]=passes
+        -- Count distinct scan revisions, not repeated scheduler ticks using
+        -- the same stale World snapshot.
+        if NOVA_CORE.zoneEmptyLastScan[world][current]~=NOVA_CORE.scanRevision then
+            NOVA_CORE.zoneEmptyLastScan[world][current]=NOVA_CORE.scanRevision
+            NOVA_CORE.zoneEmptyPasses[world][current]=
+                (NOVA_CORE.zoneEmptyPasses[world][current] or 0)+1
+        end
+        local passes=NOVA_CORE.zoneEmptyPasses[world][current] or 0
         if passes>=NOVA_CORE.zoneRequiredClearScans then
             NOVA_CORE.zoneStage[world]=current+1
             NOVA_CORE.zoneEmptyPasses[world][current]=0
@@ -2901,7 +2914,12 @@ runAutoUpgrades=function()
             return
         end
         local summary=NOVA_CORE.buyQueueStats
-        if summary.priced==0 then
+        if NOVA_CORE.zoneStatus and
+            (NOVA_CORE.zoneStatus:find('BLOQUEADA',1,true)
+                or NOVA_CORE.zoneStatus:find('SIN SALTAR',1,true)
+                or NOVA_CORE.zoneStatus:find('Zona sin identificar',1,true)) then
+            showBatchStatus(NOVA_CORE.zoneStatus)
+        elseif summary.priced==0 then
             showBatchStatus('Sin precios legibles en los botones iniciales.')
         elseif summary.affordable==0 then
             showBatchStatus('Saldo insuficiente. 0 compras pagables de '..summary.priced..' precios.')
